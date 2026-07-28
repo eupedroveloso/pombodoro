@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pombodoro</title>
+<!-- Caminhos absolutos: a página é servida em /r/CODIGO e relativos
+     resolveriam para /r/style.css, que cai na rota da praça. -->
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🐦</text></svg>">
+</head>
+<body>
+
+<!-- ─── portaria ─────────────────────────────────────────────── -->
+<section id="entrada">
+  <div class="cartao">
+    <h1>🐦 Pombodoro</h1>
+    <p class="sub">A praça onde os pombos trabalham.</p>
+
+    <canvas id="previa" width="128" height="128"></canvas>
+
+    <label class="campo">
+      <span>Seu nome</span>
+      <input id="nome" maxlength="16" placeholder="Pombo Anônimo" autocomplete="off">
+    </label>
+
+    <div class="campo">
+      <span>Penacho</span>
+      <div id="opcoesCrista" class="cores"></div>
+    </div>
+
+    <div class="campo">
+      <span>Plumagem</span>
+      <div id="opcoesCorpo" class="cores"></div>
+    </div>
+
+    <button id="btnEntrar">Pousar na praça</button>
+    <p class="rodape">Praça <b id="codigoPreview">—</b></p>
+  </div>
+</section>
+
+<!-- ─── praça ────────────────────────────────────────────────── -->
+<section id="praca" hidden>
+  <header>
+    <div class="fase">
+      <span id="rotuloFase" class="pill">—</span>
+      <strong id="relogio">--:--</strong>
+      <small id="proxima"></small>
+    </div>
+    <div class="acoes">
+      <button id="btnPlay" title="Continuar">▶</button>
+      <button id="btnReset" class="ghost" title="Zerar">↺</button>
+      <div class="ajustes">
+        <label>foco <input id="slFoco" type="range" min="1" max="60" step="1" value="30"> <b id="vFoco">30m</b></label>
+        <label>pausa <input id="slPausa" type="range" min="1" max="30" step="1" value="6"> <b id="vPausa">6m</b></label>
+      </div>
+      <button id="btnLink" class="ghost">🔗 Copiar convite</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="palco"><canvas id="cena"></canvas></div>
+
+    <aside>
+      <div class="bloco">
+        <h2>Placar 🍞</h2>
+        <ol id="placar"></ol>
+      </div>
+      <div class="bloco cresce">
+        <h2>Mural</h2>
+        <div id="mural"></div>
+      </div>
+    </aside>
+  </main>
+
+  <footer>
+    <small id="dica" title="Só durante a pausa">🎮 A/D anda · W voa · S bica · E soco</small>
+    <div id="emotes"></div>
+    <form id="formMural">
+      <input id="inputMural" maxlength="200" autocomplete="off">
+      <button id="btnEnviar">Piar</button>
+    </form>
+  </footer>
+
+  <div id="toast" hidden></div>
+</section>
+
+<script src="/socket.io/socket.io.js"></script>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

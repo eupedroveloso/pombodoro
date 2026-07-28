@@ -1,0 +1,192 @@
+:root {
+  --ceu: #d8d0c3;
+  --tinta: #14141f;
+  --papel: #f2f0e8;
+  --painel: #1c1c2a;
+  --painel2: #24243440;
+  --linha: #ffffff1a;
+  --foco: #e0405a;
+  --pausa: #7ed957;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* Minhas regras #entrada{display:grid}/#praca{display:flex} têm mais
+   especificidade que o [hidden] do navegador e o anulariam sem isto. */
+[hidden] { display: none !important; }
+
+body {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  background: var(--tinta);
+  color: var(--papel);
+  height: 100dvh;
+  overflow: hidden;
+}
+
+button, input, select { font: inherit; color: inherit; }
+
+button {
+  cursor: pointer;
+  border: 0;
+  border-radius: 6px;
+  background: var(--foco);
+  color: #fff;
+  padding: 10px 16px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  transition: filter .12s, transform .12s;
+}
+button:hover { filter: brightness(1.12); }
+button:active { transform: translateY(1px); }
+button.ghost { background: #ffffff14; }
+button:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ─── portaria ─────────────────────────────────────────────── */
+
+#entrada {
+  height: 100dvh;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 35%, #2a2a3d, var(--tinta) 70%);
+  padding: 20px;
+  overflow: auto;
+}
+
+.cartao {
+  width: min(360px, 100%);
+  background: var(--painel);
+  border: 1px solid var(--linha);
+  border-radius: 14px;
+  padding: 28px 26px;
+  text-align: center;
+}
+
+h1 { font-size: 26px; letter-spacing: -.02em; }
+.sub { color: #9a9ab0; font-size: 13px; margin: 6px 0 18px; }
+
+#previa {
+  image-rendering: pixelated;
+  background: var(--ceu);
+  border-radius: 10px;
+  margin-bottom: 18px;
+}
+
+.campo { display: block; text-align: left; margin-bottom: 14px; }
+.campo > span { display: block; font-size: 11px; color: #9a9ab0; margin-bottom: 6px; text-transform: uppercase; letter-spacing: .08em; }
+
+input, select {
+  width: 100%;
+  background: #ffffff0f;
+  border: 1px solid var(--linha);
+  border-radius: 6px;
+  padding: 10px 12px;
+  outline: 0;
+}
+input:focus { border-color: var(--foco); }
+select { width: auto; cursor: pointer; }
+select option { background: var(--painel); }
+
+.cores { display: flex; gap: 8px; }
+.cores button {
+  width: 30px; height: 30px;
+  border-radius: 6px;
+  padding: 0;
+  border: 2px solid transparent;
+}
+.cores button[aria-pressed='true'] { border-color: var(--papel); }
+
+#btnEntrar { width: 100%; margin-top: 6px; padding: 13px; }
+.rodape { font-size: 11px; color: #6f6f88; margin-top: 14px; }
+
+/* ─── praça ────────────────────────────────────────────────── */
+
+#praca { height: 100dvh; display: flex; flex-direction: column; }
+
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 10px 16px;
+  border-bottom: 1px solid var(--linha);
+}
+.fase { display: flex; align-items: baseline; gap: 10px; }
+.fase strong { font-size: 26px; font-variant-numeric: tabular-nums; }
+.fase small { color: #8686a0; font-size: 11px; }
+.acoes { display: flex; gap: 8px; align-items: center; }
+
+.pill {
+  font-size: 10px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase;
+  padding: 4px 9px; border-radius: 99px;
+  background: var(--foco);
+}
+.pill.pausa { background: var(--pausa); color: #14301a; }
+.pill.parado { background: #55556a; color: #d8d8e4; }
+
+#btnPlay { min-width: 42px; }
+.ajustes { display: flex; gap: 12px; align-items: center; }
+.ajustes label {
+  display: flex; gap: 6px; align-items: center;
+  font-size: 10px; color: #8686a0;
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.ajustes b { color: var(--papel); min-width: 26px; font-variant-numeric: tabular-nums; }
+.ajustes input[type='range'] { width: 76px; accent-color: var(--foco); padding: 0; }
+@media (max-width: 900px) { .ajustes { display: none; } }
+
+main { flex: 1; display: flex; min-height: 0; }
+
+#palco {
+  flex: 1;
+  display: grid; place-items: center;
+  background: var(--ceu);
+  min-width: 0;
+}
+#cena { image-rendering: pixelated; display: block; }
+
+aside {
+  width: 280px;
+  border-left: 1px solid var(--linha);
+  display: flex; flex-direction: column;
+  min-height: 0;
+}
+.bloco { padding: 12px 14px; border-bottom: 1px solid var(--linha); }
+.bloco.cresce { flex: 1; display: flex; flex-direction: column; min-height: 0; border-bottom: 0; }
+.bloco h2 { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: #8686a0; margin-bottom: 8px; }
+
+#placar { list-style: none; display: flex; flex-direction: column; gap: 5px; max-height: 172px; overflow: auto; }
+#placar li { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+#placar .ponto { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+#placar .nome { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#placar li.offline { opacity: .42; }
+#placar li.eu .nome { font-weight: 700; }
+#placar .pts { color: #d8d8e8; font-variant-numeric: tabular-nums; }
+
+#mural { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 7px; font-size: 12px; line-height: 1.45; }
+#mural .sistema { color: #7c7c96; font-style: italic; }
+#mural .recado { background: #ffffff0d; border-left: 2px solid var(--foco); padding: 5px 8px; border-radius: 0 5px 5px 0; }
+#mural b { color: #fff; }
+
+footer { border-top: 1px solid var(--linha); padding: 10px 16px; display: flex; gap: 12px; align-items: center; }
+#dica { color: #6f6f88; font-size: 10px; white-space: nowrap; }
+@media (max-width: 760px) { #dica { display: none; } }
+#emotes { display: flex; gap: 4px; }
+#emotes button { background: #ffffff10; padding: 6px 9px; font-size: 16px; line-height: 1; }
+#formMural { flex: 1; display: flex; gap: 8px; }
+#formMural input:disabled { opacity: .45; cursor: not-allowed; }
+
+#toast {
+  position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%);
+  background: var(--painel); border: 1px solid var(--linha);
+  padding: 12px 20px; border-radius: 10px;
+  font-size: 13px; text-align: center;
+  box-shadow: 0 8px 30px #0009;
+  animation: sobe .25s ease-out;
+}
+@keyframes sobe { from { opacity: 0; transform: translate(-50%, 12px); } }
+
+@media (max-width: 760px) {
+  main { flex-direction: column; }
+  aside { width: 100%; border-left: 0; border-top: 1px solid var(--linha); max-height: 42dvh; }
+  #palco { flex: none; height: 34dvh; }
+  .fase strong { font-size: 20px; }
+  .fase small { display: none; }
+}
