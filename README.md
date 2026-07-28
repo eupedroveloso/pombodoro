@@ -22,8 +22,8 @@ node preview.js out.png  # renderiza a cena num PNG, sem abrir o navegador
 node preview.js out.png pausa
 ```
 
-No app, troque o ritmo para **Turbo** no seletor do topo: sprint de 1 minuto e
-pausa de 20 segundos. Dá pra ver um ciclo inteiro sem esperar meia hora.
+No app, arraste o slider de foco pra **1min** e dê o play: dá pra ver um ciclo
+inteiro sem esperar meia hora. (Os bots fazem isso sozinhos ao entrar.)
 
 ## As regras
 
@@ -34,17 +34,24 @@ pausa de 20 segundos. Dá pra ver um ciclo inteiro sem esperar meia hora.
 | Sprint abandonado | **0** — não existe crédito parcial |
 | Teto diário | 8 sprints pontuados (4h de foco de verdade) |
 
-**Durante o foco o mural fica trancado.** Só emotes passam. É a regra que separa
-o Pombodoro de "mais um Discord com timer": a pausa vira o café do escritório,
-sincronizado, e todo mundo aparece ao mesmo tempo.
+**Durante o foco rodando o mural fica trancado.** Só emotes passam. É a regra
+que separa o Pombodoro de "mais um Discord com timer": a pausa vira o café do
+escritório, sincronizado, e todo mundo aparece ao mesmo tempo.
 
-**Ninguém aperta play.** As fases são ancoradas no relógio real — todos os
-presets dividem 86400 exato, então o ciclo cai sempre no mesmo ponto do dia.
-Quem entra às 14h12 vê "faltam 18 min" e pronto. Zero coordenação.
+**O cronômetro é da sala.** Qualquer pombo presente dá play, pausa, zera e
+ajusta a duração nos sliders (foco 1–60min, pausa 1–30min). Mudar a duração
+zera o sprint em andamento. Quem entra com o sprint já rolando não pontua
+naquele sprint — pontua no próximo.
 
 **Anti-trapaça é de leve**, é entre amigos: só invalida o sprint se a conexão
 cair por mais de 2 minutos. Trocar de aba não conta — você *tem* que trabalhar
 em outro lugar.
+
+**Na pausa a praça vira playground:** `A/D` anda, `W` voa (batendo asa),
+`S` bica o chão, `E` dá um soco no pombo mais próximo — que fica tonto, sai
+voando de empurrão e vê estrelinha. O chat aparece como balão de fala em cima
+do pombo de quem falou. Nada disso funciona durante o foco: pombo focado é
+pombo sentado.
 
 ## Como é feito
 

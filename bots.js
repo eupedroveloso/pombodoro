@@ -40,10 +40,11 @@ for (let i = 0; i < QUANTOS; i++) {
 
   // Passeia de vez em quando (na pausa; no foco o servidor descarta).
   setInterval(() => {
-    socket.emit('mover', { x: Math.floor(10 + Math.random() * 230), dir: Math.random() < 0.5 ? 1 : -1, acao: 'anda' })
+    socket.emit('mover', { x: Math.floor(10 + Math.random() * 600), dir: Math.random() < 0.5 ? 1 : -1, acao: 'anda' })
   }, 5000 + i * 1300)
-  // E de vez em quando parte pra porrada.
+  // E de vez em quando parte pra porrada — ou pior.
   setInterval(() => socket.emit('mover', { acao: 'soco', dir: 1 }), 17000 + i * 4100)
+  setInterval(() => socket.emit('mover', { acao: 'coco', dir: 1 }), 23000 + i * 5700)
 
   socket.on('creditado', ({ ganho, total }) => console.log(`  🍞 ${nome} +${ganho} (${total})`))
 

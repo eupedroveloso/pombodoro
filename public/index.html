@@ -6,6 +6,9 @@
 <title>Pombodoro</title>
 <!-- Caminhos absolutos: a página é servida em /r/CODIGO e relativos
      resolveriam para /r/style.css, que cai na rota da praça. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🐦</text></svg>">
 </head>
@@ -34,8 +37,24 @@
       <div id="opcoesCorpo" class="cores"></div>
     </div>
 
-    <button id="btnEntrar">Pousar na praça</button>
-    <p class="rodape">Praça <b id="codigoPreview">—</b></p>
+    <div class="campo">
+      <span>Acessório</span>
+      <div id="opcoesAcessorio" class="cores"></div>
+    </div>
+
+    <!-- Sem sala (primeiro acesso): cria antes de pousar. -->
+    <button id="btnCriar" hidden>🏗️ Criar minha praça</button>
+
+    <!-- Com sala (veio por convite ou já criou): pousa. -->
+    <button id="btnEntrar" hidden>Pousar na praça</button>
+
+    <div class="rodape" id="rodapeSala" hidden>
+      <div class="sala-codigo">Praça <b id="codigoPreview">—</b></div>
+      <div class="rodape-acoes">
+        <button type="button" id="btnCopiarPraca" class="chip">🔗 copiar convite</button>
+        <button type="button" id="btnNovaPraca" class="chip">🎲 nova praça</button>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -55,13 +74,43 @@
         <label>pausa <input id="slPausa" type="range" min="1" max="30" step="1" value="6"> <b id="vPausa">6m</b></label>
       </div>
       <button id="btnLink" class="ghost">🔗 Copiar convite</button>
+      <button id="btnSair" class="ghost" title="Sair da praça (as migalhas ficam guardadas)">🚪 Sair</button>
     </div>
   </header>
 
   <main>
-    <div id="palco"><canvas id="cena"></canvas></div>
+    <div id="palco">
+      <canvas id="cena"></canvas>
+      <div id="zoomBotoes">
+        <button id="zoomMais" title="Aproximar (+)">＋</button>
+        <button id="zoomMenos" title="Afastar (−)">－</button>
+      </div>
+    </div>
 
     <aside>
+      <div class="bloco" id="blocoRadio">
+        <h2>Rádio da praça 📻</h2>
+        <div id="ytwrap"><div id="ytplayer"></div></div>
+        <div id="radioInfo" class="radio-info">Fila vazia — cola um link aí 👇</div>
+        <div class="radio-controles">
+          <div class="grupo" title="Controla a música pra sala inteira">
+            <small>sala</small>
+            <button id="rPrev" class="ghost" title="Anterior (sala)">⏮</button>
+            <button id="rPlay" class="ghost" title="Tocar / pausar (sala)">▶</button>
+            <button id="rNext" class="ghost" title="Próxima (sala)">⏭</button>
+          </div>
+          <div class="grupo" title="Só afeta o SEU som — cada pombo tem o seu">
+            <small>você</small>
+            <button id="btnSom" class="ghost" title="Mudo (só você)">🔇</button>
+            <input id="slVol" type="range" min="0" max="100" value="60" title="Volume (só você)">
+          </div>
+        </div>
+        <form id="formRadio">
+          <input id="inputRadio" placeholder="Link do YouTube…" autocomplete="off">
+          <button title="Adicionar à fila">+</button>
+        </form>
+        <ol id="fila"></ol>
+      </div>
       <div class="bloco">
         <h2>Placar 🍞</h2>
         <ol id="placar"></ol>
@@ -74,12 +123,12 @@
   </main>
 
   <footer>
-    <small id="dica" title="Só durante a pausa">🎮 A/D anda · W voa · S bica · E soco</small>
     <div id="emotes"></div>
     <form id="formMural">
       <input id="inputMural" maxlength="200" autocomplete="off">
       <button id="btnEnviar">Piar</button>
     </form>
+    <button id="btnSortear" class="ghost" title="Sorteia um pombo presente na praça">🎲 Sortear</button>
   </footer>
 
   <div id="toast" hidden></div>

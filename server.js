@@ -9,6 +9,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_FILE = join(__dirname, 'data.json')
 const PORT = process.env.PORT || 3000
 
+// Bump a cada mudança de física/protocolo: clientes com versão diferente
+// recarregam sozinhos — acaba o pombo fantasma de aba desatualizada.
+const VERSAO_APP = 15
+
 /* ─────────────────────────── regras da praça ─────────────────────────── */
 
 const FOCO_PADRAO = 30 * 60
@@ -33,10 +37,45 @@ function novoTimer(focusSec = FOCO_PADRAO, breakSec = PAUSA_PADRAO) {
   return { fase: 'foco', restante: focusSec, rodando: false, focusSec, breakSec }
 }
 
+/** Rádio: fila coletiva de YouTube. O servidor é a autoridade de posição. */
+function novoRadio() {
+  return { fila: [], indice: 0, tocando: false, inicioEm: 0, offsetSec: 0 }
+}
+
+/** Em que segundo da faixa atual a sala está. */
+function posRadio(r) {
+  return r.offsetSec + (r.tocando ? (Date.now() - r.inicioEm) / 1000 : 0)
+}
+
+function tocarFaixa(r, i, tocar = true) {
+  r.indice = i
+  r.offsetSec = 0
+  r.inicioEm = Date.now()
+  r.tocando = tocar && Boolean(r.fila[i])
+}
+
+function avancarRadio(r) {
+  if (r.indice < r.fila.length - 1) tocarFaixa(r, r.indice + 1)
+  else {
+    // Fim da fila: para e aponta pra "depois do fim" — a próxima música
+    // adicionada assume dali.
+    r.indice = r.fila.length
+    r.offsetSec = 0
+    r.tocando = false
+  }
+}
+
+function extrairVideoId(url) {
+  const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/))([\w-]{11})/)
+  if (m) return m[1]
+  const solto = url.trim().match(/^([\w-]{11})$/) // colou só o ID
+  return solto ? solto[1] : null
+}
+
 const salas = new Map()
 
 function novaSala(codigo) {
-  return { codigo, timer: novoTimer(), jogadores: new Map(), mural: [] }
+  return { codigo, timer: novoTimer(), radio: novoRadio(), jogadores: new Map(), mural: [], manchas: [] }
 }
 
 function pegarSala(codigo) {
@@ -61,6 +100,7 @@ function carregar() {
           nome: j.nome,
           crista: j.crista,
           corpo: j.corpo,
+          acessorio: j.acessorio || 0,
           migalhas: j.migalhas || 0,
           sprints: j.sprints || 0,
           sprintsHoje: j.dia === chaveDoDia() ? j.sprintsHoje || 0 : 0,
@@ -69,6 +109,7 @@ function carregar() {
           offlineDesde: Date.now(),
           socketId: null,
           focoValido: false,
+          saiu: false,
         })
       }
       salas.set(codigo, sala)
@@ -95,6 +136,7 @@ function salvar() {
               nome: j.nome,
               crista: j.crista,
               corpo: j.corpo,
+              acessorio: j.acessorio || 0,
               migalhas: j.migalhas,
               sprints: j.sprints,
               sprintsHoje: j.sprintsHoje,
@@ -117,12 +159,14 @@ function salvar() {
 function jogadoresVisiveis(sala) {
   const agora = Date.now()
   return [...sala.jogadores.values()]
-    .filter((j) => j.online || agora - j.offlineDesde < SOME_DA_PRACA_SEC * 1000)
+    // Quem saiu pela porta some na hora; quem caiu fica de fantasma um tempo.
+    .filter((j) => !j.saiu && (j.online || agora - j.offlineDesde < SOME_DA_PRACA_SEC * 1000))
     .map((j) => ({
       id: j.id,
       nome: j.nome,
       crista: j.crista,
       corpo: j.corpo,
+      acessorio: j.acessorio || 0,
       x: j.posX, // quem entra agora vê os outros onde eles pararam
       dir: j.posDir,
       migalhas: j.migalhas,
@@ -138,6 +182,7 @@ function estado(sala) {
   const t = sala.timer
   return {
     codigo: sala.codigo,
+    versao: VERSAO_APP,
     // O cliente conta os segundos sozinho a partir daqui — sem tráfego por segundo.
     agoraServidor: Date.now(),
     fase: t.fase,
@@ -147,6 +192,14 @@ function estado(sala) {
     breakSec: t.breakSec,
     jogadores: jogadoresVisiveis(sala),
     mural: sala.mural.slice(-60),
+    // Sangue some depois de ~20 segundos.
+    manchas: sala.manchas.filter((m) => Date.now() - m.ts < 20000),
+    radio: {
+      fila: sala.radio.fila.map((f) => ({ videoId: f.videoId, titulo: f.titulo, de: f.de })),
+      indice: sala.radio.indice,
+      tocando: sala.radio.tocando,
+      posSec: posRadio(sala.radio),
+    },
   }
 }
 
@@ -158,7 +211,14 @@ const app = express()
 const http = createServer(app)
 const io = new Server(http)
 
-app.use(express.static(join(__dirname, 'public')))
+app.use(
+  express.static(join(__dirname, 'public'), {
+    // Sempre revalidar: o navegador não pode servir física velha do cache.
+    etag: true,
+    maxAge: 0,
+    setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
+  })
+)
 app.get('/r/:codigo', (_req, res) => res.sendFile(join(__dirname, 'public', 'index.html')))
 
 io.on('connection', (socket) => {
@@ -181,14 +241,18 @@ io.on('connection', (socket) => {
       jogador.nome = nome
       jogador.crista = payload.crista ?? jogador.crista
       jogador.corpo = payload.corpo ?? jogador.corpo
-      const voltouRapido = Date.now() - jogador.offlineDesde < TOLERANCIA_QUEDA_SEC * 1000
+      jogador.acessorio = payload.acessorio ?? jogador.acessorio ?? 0
+      const voltouRapido = !jogador.saiu && Date.now() - jogador.offlineDesde < TOLERANCIA_QUEDA_SEC * 1000
       if (!voltouRapido) jogador.focoValido = false
+      if (jogador.saiu) anunciar(sala, `${nome} voltou pra praça`)
+      jogador.saiu = false
     } else {
       jogador = {
         id,
         nome,
         crista: payload.crista ?? 0,
         corpo: payload.corpo ?? 0,
+        acessorio: payload.acessorio ?? 0,
         migalhas: 0,
         sprints: 0,
         sprintsHoje: 0,
@@ -197,6 +261,7 @@ io.on('connection', (socket) => {
         offlineDesde: 0,
         socketId: socket.id,
         focoValido: false, // entrou com o sprint rolando? esse não conta
+        saiu: false,
       }
       sala.jogadores.set(id, jogador)
       anunciar(sala, `${nome} pousou na praça`)
@@ -292,20 +357,50 @@ io.on('connection', (socket) => {
     if (!sala || !jogador) return
     if (emFoco(sala)) return // trabalhando não se anda nem se soca
 
-    const acao = ['anda', 'bica', 'pula', 'soco'].includes(payload.acao) ? payload.acao : 'anda'
+    const acao = ['anda', 'bica', 'bica2', 'pula', 'soco', 'coco', 'danca', 'dorme'].includes(payload.acao) ? payload.acao : 'anda'
     const x = Number(payload.x)
-    if (Number.isFinite(x)) jogador.posX = Math.max(0, Math.min(300, x))
+    if (Number.isFinite(x)) jogador.posX = Math.max(0, Math.min(640, x))
     jogador.posDir = payload.dir === 1 ? 1 : -1
+    const alt = Number(payload.alt)
+    jogador.posAlt = Number.isFinite(alt) ? Math.max(-260, Math.min(0, alt)) : 0
+
+    if (acao === 'coco') {
+      if (!Number.isFinite(jogador.posX)) return
+      // Quem está na vertical do pombo E abaixo dele (cocô não cai pra cima).
+      const vitimas = []
+      for (const outro of sala.jogadores.values()) {
+        if (outro === jogador || outro.saiu || !Number.isFinite(outro.posX)) continue
+        if (Math.abs(outro.posX - jogador.posX) > 8) continue
+        if ((outro.posAlt || 0) < (jogador.posAlt || 0)) continue
+        vitimas.push(outro.id)
+      }
+      io.to(sala.codigo).emit('coco', {
+        id: jogador.id,
+        x: jogador.posX,
+        dir: jogador.posDir,
+        alt: jogador.posAlt || 0,
+        vitimas,
+      })
+      // Com o cocô contínuo (segurar espaço), anuncia no máximo 1x a cada 6s
+      // pra rajada não afogar o mural. O evento visual sai sempre.
+      if (vitimas.length && Date.now() - (jogador.anuncioCocoEm || 0) > 6000) {
+        jogador.anuncioCocoEm = Date.now()
+        const nomes = vitimas.map((id) => sala.jogadores.get(id)?.nome).filter(Boolean).join(', ')
+        anunciar(sala, `${jogador.nome} fez cocô em ${nomes} 💩`)
+        io.to(sala.codigo).emit('estado', estado(sala))
+      }
+      return
+    }
 
     if (acao === 'soco') {
       if (!Number.isFinite(jogador.posX)) return
       // O servidor decide quem apanha — senão cada cliente veria uma briga diferente.
       const vitimas = []
       for (const outro of sala.jogadores.values()) {
-        if (outro === jogador || !outro.online || !Number.isFinite(outro.posX)) continue
+        if (outro === jogador || outro.saiu || !Number.isFinite(outro.posX)) continue
         const dx = outro.posX - jogador.posX
         if (Math.abs(dx) > ALCANCE_SOCO) continue
-        outro.posX = Math.max(0, Math.min(300, outro.posX + (dx >= 0 ? 1 : -1) * EMPURRAO_SOCO))
+        outro.posX = Math.max(0, Math.min(640, outro.posX + (dx >= 0 ? 1 : -1) * EMPURRAO_SOCO))
         vitimas.push({ id: outro.id, x: outro.posX })
       }
       io.to(sala.codigo).emit('soco', { id: jogador.id, x: jogador.posX, dir: jogador.posDir, vitimas })
@@ -313,7 +408,112 @@ io.on('connection', (socket) => {
     }
 
     // Caminho quente (~8x/s por pombo andando): retransmite sem montar estado.
-    socket.to(sala.codigo).emit('pos', { id: jogador.id, x: jogador.posX, dir: jogador.posDir, acao })
+    socket.to(sala.codigo).emit('pos', { id: jogador.id, x: jogador.posX, dir: jogador.posDir, alt: jogador.posAlt, acao })
+  })
+
+  /* ── rádio da praça ── */
+
+  socket.on('radio', async (payload = {}) => {
+    if (!sala || !jogador) return
+    const r = sala.radio
+    const acao = String(payload.acao || '')
+    const atual = r.fila[r.indice]
+
+    if (acao === 'add') {
+      const id = extrairVideoId(String(payload.url || ''))
+      if (!id) return socket.emit('recusado', 'Não entendi esse link do YouTube 🤔')
+      if (r.fila.length >= 50) return socket.emit('recusado', 'A fila está lotada (50 músicas)')
+      // Valida ANTES de aceitar: vídeo morto/embed bloqueado nem entra.
+      let titulo
+      try {
+        const resp = await fetch(
+          `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`,
+          { signal: AbortSignal.timeout(6000) }
+        )
+        if (!resp.ok) throw new Error(`oembed ${resp.status}`)
+        titulo = (await resp.json()).title
+      } catch {
+        return socket.emit('recusado', 'Esse vídeo não rolou — pode não existir ou não tocar fora do YouTube')
+      }
+      const estavaOcioso = !r.fila[r.indice]
+      r.fila.push({ videoId: id, titulo, de: jogador.nome, deId: jogador.id })
+      anunciar(sala, `${jogador.nome} adicionou "${titulo}" na fila 📻`)
+      if (estavaOcioso) tocarFaixa(r, r.fila.length - 1)
+    } else if (acao === 'play') {
+      if (!r.fila[r.indice] && r.fila.length) tocarFaixa(r, 0)
+      else if (r.fila[r.indice]) {
+        r.inicioEm = Date.now()
+        r.tocando = true
+      }
+    } else if (acao === 'pause') {
+      if (r.tocando) {
+        r.offsetSec = posRadio(r)
+        r.tocando = false
+      }
+    } else if (acao === 'next') {
+      avancarRadio(r)
+    } else if (acao === 'prev') {
+      tocarFaixa(r, Math.max(0, r.indice - 1))
+    } else if (acao === 'ir') {
+      const i = Number(payload.indice)
+      if (r.fila[i]) tocarFaixa(r, i)
+    } else if (acao === 'remover') {
+      const i = Number(payload.indice)
+      if (!r.fila[i]) return
+      r.fila.splice(i, 1)
+      if (i < r.indice) r.indice -= 1
+      else if (i === r.indice) {
+        r.offsetSec = 0
+        r.inicioEm = Date.now()
+        if (!r.fila[r.indice]) r.tocando = false
+      }
+    } else if (acao === 'terminou' || acao === 'erro') {
+      // Vários clientes reportam a mesma faixa; só o primeiro avança —
+      // pros demais o videoId já não bate e o evento morre aqui.
+      if (!atual || atual.videoId !== payload.videoId) return
+      if (acao === 'erro') anunciar(sala, `"${atual.titulo}" não tocou por aqui — pulando ⏭`)
+      avancarRadio(r)
+    } else {
+      return
+    }
+    io.to(sala.codigo).emit('estado', estado(sala))
+  })
+
+  /* Saída pela porta: diferente de cair a conexão. Não tem tolerância de
+     reconexão — o sprint em andamento é abandonado e o pombo some do desenho
+     na hora. As migalhas ficam guardadas pra quando ele voltar. */
+  socket.on('sair', () => {
+    if (!sala || !jogador) return
+    if (jogador.socketId === socket.id) {
+      jogador.online = false
+      jogador.offlineDesde = Date.now()
+      jogador.socketId = null
+    }
+    jogador.saiu = true
+    jogador.focoValido = false
+    // Saída dramática: explode onde estava e a mancha fica na praça.
+    const ondeX = Number.isFinite(jogador.posX) ? jogador.posX : 300
+    sala.manchas.push({ x: ondeX, ts: Date.now() })
+    if (sala.manchas.length > 20) sala.manchas.shift()
+    io.to(sala.codigo).emit('explodiu', { id: jogador.id, x: ondeX })
+    anunciar(sala, `${jogador.nome} explodiu 💥`)
+    socket.leave(sala.codigo)
+    io.to(sala.codigo).emit('estado', estado(sala))
+    salvar()
+    sala = null
+    jogador = null
+  })
+
+  // Sorteador: escolhe um pombo presente. Bom pra decidir quem fala
+  // primeiro na daily, quem paga o café, quem revisa o PR.
+  socket.on('sortear', () => {
+    if (!sala || !jogador) return
+    const presentes = [...sala.jogadores.values()].filter((j) => j.online && !j.saiu)
+    if (!presentes.length) return
+    const alvo = presentes[Math.floor(Math.random() * presentes.length)]
+    anunciar(sala, `🎲 ${jogador.nome} girou o sorteio: deu ${alvo.nome}!`)
+    io.to(sala.codigo).emit('sorteado', { nome: alvo.nome, por: jogador.nome })
+    io.to(sala.codigo).emit('estado', estado(sala))
   })
 
   socket.on('disconnect', () => {

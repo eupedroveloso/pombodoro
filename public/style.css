@@ -1,5 +1,5 @@
 :root {
-  --ceu: #d8d0c3;
+  --ceu: #9fd7f0; /* azul claro do meio-dia */
   --tinta: #14141f;
   --papel: #f2f0e8;
   --painel: #1c1c2a;
@@ -86,14 +86,17 @@ input:focus { border-color: var(--foco); }
 select { width: auto; cursor: pointer; }
 select option { background: var(--painel); }
 
-.cores { display: flex; gap: 8px; }
+.cores { display: flex; gap: 6px; flex-wrap: wrap; }
 .cores button {
-  width: 30px; height: 30px;
+  width: 26px; height: 26px;
   border-radius: 6px;
   padding: 0;
   border: 2px solid transparent;
+  border-bottom-width: 3px;
 }
-.cores button[aria-pressed='true'] { border-color: var(--papel); }
+.cores button[aria-pressed='true'] { border-color: var(--papel) !important; }
+.cores button.mini { background: #ffffff10; width: 34px; height: 34px; overflow: hidden; }
+.cores button.mini canvas { image-rendering: pixelated; display: block; }
 
 #btnEntrar { width: 100%; margin-top: 6px; padding: 13px; }
 .rodape { font-size: 11px; color: #6f6f88; margin-top: 14px; }
@@ -122,6 +125,7 @@ header {
 .pill.parado { background: #55556a; color: #d8d8e4; }
 
 #btnPlay { min-width: 42px; }
+#btnSair:hover { background: var(--foco); filter: none; }
 .ajustes { display: flex; gap: 12px; align-items: center; }
 .ajustes label {
   display: flex; gap: 6px; align-items: center;
@@ -136,11 +140,22 @@ main { flex: 1; display: flex; min-height: 0; }
 
 #palco {
   flex: 1;
-  display: grid; place-items: center;
   background: var(--ceu);
   min-width: 0;
+  overflow: hidden;
+  position: relative;
 }
-#cena { image-rendering: pixelated; display: block; }
+#zoomBotoes {
+  position: absolute; right: 10px; bottom: 10px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+#zoomBotoes button {
+  width: 34px; height: 34px; padding: 0;
+  background: #14141fb8; color: var(--papel);
+  font-size: 16px; line-height: 1;
+}
+#zoomBotoes button:hover { background: #14141f; }
+#cena { image-rendering: pixelated; display: block; width: 100%; height: 100%; }
 
 aside {
   width: 280px;
@@ -152,7 +167,36 @@ aside {
 .bloco.cresce { flex: 1; display: flex; flex-direction: column; min-height: 0; border-bottom: 0; }
 .bloco h2 { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: #8686a0; margin-bottom: 8px; }
 
-#placar { list-style: none; display: flex; flex-direction: column; gap: 5px; max-height: 172px; overflow: auto; }
+/* rádio */
+#ytwrap { aspect-ratio: 16/9; background: #000; border-radius: 6px; overflow: hidden; margin-bottom: 8px; }
+#ytwrap iframe { width: 100%; height: 100%; display: block; }
+.radio-info { font-size: 11px; color: #b9b9cc; line-height: 1.4; margin-bottom: 6px; min-height: 15px; }
+.radio-info b { color: var(--papel); }
+/* duas linhas: transporte da sala em cima, volume pessoal embaixo */
+.radio-controles { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.radio-controles .grupo { display: flex; align-items: center; gap: 6px; }
+.radio-controles .grupo small {
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  font-size: 6px; color: #77778e; text-transform: uppercase;
+  width: 30px; flex: none;
+}
+.radio-controles button { padding: 6px 10px; font-size: 13px; line-height: 1; }
+#slVol { flex: 1; width: auto; min-width: 0; accent-color: var(--foco); padding: 0; }
+#formRadio { display: flex; gap: 6px; margin-bottom: 8px; }
+#formRadio input { flex: 1; padding: 7px 10px; font-size: 11px; }
+#formRadio button { padding: 7px 12px; }
+#fila { list-style: none; max-height: 96px; overflow: auto; display: flex; flex-direction: column; gap: 3px; }
+#fila li { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #b9b9cc; }
+#fila li .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+#fila li .t:hover { color: var(--papel); }
+#fila li.atual .t { color: var(--papel); font-weight: 700; }
+#fila li.atual::before { content: '▸'; color: var(--pausa); }
+#fila li.passada { opacity: .45; }
+#fila li small { color: #77778e; flex: none; }
+#fila li button { background: none; padding: 0 4px; color: #77778e; font-size: 11px; }
+#fila li button:hover { color: var(--foco); }
+
+#placar { list-style: none; display: flex; flex-direction: column; gap: 5px; max-height: 120px; overflow: auto; }
 #placar li { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 #placar .ponto { width: 8px; height: 8px; border-radius: 2px; flex: none; }
 #placar .nome { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -190,3 +234,196 @@ footer { border-top: 1px solid var(--linha); padding: 10px 16px; display: flex; 
   .fase strong { font-size: 20px; }
   .fase small { display: none; }
 }
+
+/* ─── skin retrô ──────────────────────────────────────────────
+   Aplicada por cima de tudo: cantos duros, sombras chapadas e
+   fonte de fliperama nos títulos e controles. */
+
+button, input, select, .cartao, .bloco, .pill, #toast, #ytwrap,
+#previa, .cores button, #zoomBotoes button {
+  border-radius: 0 !important;
+}
+
+button {
+  border: 3px solid #101018;
+  box-shadow: 3px 3px 0 #10101866;
+  transition: none;
+}
+button:hover { filter: brightness(1.15); }
+button:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #10101866;
+}
+
+h1 {
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  font-size: 18px;
+  letter-spacing: 0;
+  text-shadow: 3px 3px 0 #10101880;
+}
+.bloco h2, .campo > span, .ajustes label {
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  font-size: 7px;
+}
+.pill {
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  font-size: 7px;
+  padding: 5px 8px;
+  border: 2px solid #101018;
+}
+.fase strong {
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  font-size: 17px;
+}
+#btnEntrar, #btnPlay, #btnEnviar {
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  font-size: 10px;
+}
+
+.cartao {
+  border: 4px solid #101018;
+  box-shadow: 8px 8px 0 #00000055;
+}
+input, select {
+  border: 3px solid #10101888;
+}
+input:focus { border-color: var(--foco); }
+
+header { border-bottom: 3px solid #101018; }
+footer { border-top: 3px solid #101018; }
+aside { border-left: 3px solid #101018; }
+.bloco { border-bottom-width: 2px; }
+
+#toast {
+  border: 3px solid #101018;
+  box-shadow: 5px 5px 0 #00000077;
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  font-size: 9px;
+  line-height: 1.7;
+}
+
+#zoomBotoes button { border-width: 2px; }
+#previa { border: 3px solid #101018; }
+
+/* portaria: criar praça + rodapé alinhado */
+#btnCriar {
+  width: 100%;
+  margin-top: 6px;
+  padding: 13px;
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  font-size: 10px;
+  background: var(--pausa);
+  color: #14301a;
+}
+.rodape {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+.sala-codigo { font-size: 11px; color: #9a9ab0; }
+.sala-codigo b { color: var(--papel); letter-spacing: .1em; }
+.rodape-acoes { display: flex; gap: 8px; }
+.chip {
+  background: #ffffff10;
+  color: var(--papel);
+  font-size: 10px;
+  padding: 7px 10px;
+  border-width: 2px;
+  box-shadow: 2px 2px 0 #10101866;
+}
+.chip:hover { background: #ffffff22; filter: none; }
+
+/* ─── skin retrô v2: console de verdade, sem meio-termo com site ────
+   Janelas com bisel (claro em cima, escuro embaixo), botões chanfrados
+   de dois estados, sliders quadrados, Press Start em toda a UI. */
+
+:root {
+  --janela: #1b1b30;
+  --janela-escuro: #0c0c18;
+  --bisel-luz: #45456b;
+}
+
+body { background: #101020; }
+
+/* janelas */
+header, footer {
+  background: var(--janela);
+  border: 0;
+  box-shadow: inset 0 0 0 3px var(--janela-escuro), inset 0 0 0 5px var(--bisel-luz);
+  padding: 12px 18px;
+}
+aside { background: #15152a; border-left: 4px solid var(--janela-escuro); }
+.bloco {
+  border-bottom: 4px solid var(--janela-escuro);
+  box-shadow: inset 0 -1px 0 var(--bisel-luz);
+}
+.cartao {
+  background: var(--janela);
+  border: 0;
+  box-shadow: inset 0 0 0 4px var(--janela-escuro), inset 0 0 0 7px var(--bisel-luz), 10px 10px 0 #00000066;
+  padding: 26px 24px;
+}
+#toast {
+  background: var(--janela);
+  border: 0;
+  box-shadow: inset 0 0 0 3px var(--janela-escuro), inset 0 0 0 5px var(--bisel-luz), 6px 6px 0 #000000aa;
+}
+
+/* botões chanfrados de console */
+button {
+  border: 0 !important;
+  border-radius: 0;
+  box-shadow: inset -3px -3px 0 #00000066, inset 3px 3px 0 #ffffff2e, 0 3px 0 var(--janela-escuro);
+  font-family: 'Press Start 2P', ui-monospace, monospace;
+  font-size: 9px;
+  padding: 10px 14px;
+  image-rendering: pixelated;
+}
+button:active {
+  transform: translateY(3px);
+  box-shadow: inset 3px 3px 0 #00000066, inset -3px -3px 0 #ffffff1c;
+}
+button.ghost { background: #2a2a44; }
+#emotes button, .radio-controles button, #zoomBotoes button, #fila li button { font-family: inherit; }
+#fila li button { box-shadow: none; padding: 0 4px; }
+
+/* campos */
+input[type='text'], input:not([type]), #inputMural, #inputRadio, #nome {
+  background: var(--janela-escuro);
+  border: 0;
+  box-shadow: inset 2px 2px 0 #00000088, inset 0 0 0 2px var(--bisel-luz);
+  font-size: 12px;
+}
+input:focus { box-shadow: inset 2px 2px 0 #00000088, inset 0 0 0 2px var(--foco) !important; }
+
+/* sliders quadrados */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 12px;
+  background: var(--janela-escuro);
+  box-shadow: inset 0 0 0 2px var(--bisel-luz);
+  border: 0;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 16px;
+  background: var(--foco);
+  box-shadow: inset -2px -2px 0 #00000066, inset 2px 2px 0 #ffffff44;
+  cursor: pointer;
+}
+
+/* rodapé: chat centralizado com o sorteador ao lado */
+footer { justify-content: center; gap: 12px; }
+#formMural { flex: 0 1 460px; }
+#btnSortear { background: var(--pausa); color: #14301a; }
+
+/* tipografia de console nos textos de UI */
+.sub, .fase small, .radio-info, .sala-codigo, #placar li, #fila li {
+  font-family: ui-monospace, monospace;
+}
+.campo > span, .bloco h2 { color: #9a9ab8; }
+#mural { font-size: 11px; }
