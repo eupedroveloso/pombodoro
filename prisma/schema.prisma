@@ -1,0 +1,47 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Conta do pombo. Quem loga com Google tem googleId/email; convidado tem só
+// o id gerado no navegador. O visual do pombo mora aqui — é da conta, não da sala.
+model User {
+  id            String         @id
+  googleId      String?        @unique
+  email         String?        @unique
+  foto          String?
+  nome          String         @default("Pombo")
+  crista        Int            @default(0)
+  corpo         Int            @default(0)
+  acessorio     Int            @default(0)
+  criadoEm      DateTime       @default(now())
+  participacoes Participacao[]
+}
+
+model Sala {
+  codigo        String         @id
+  focusSec      Int            @default(1800)
+  breakSec      Int            @default(360)
+  participacoes Participacao[]
+}
+
+// Migalhas, sprints e tarefas são por praça — o placar é local de cada sala.
+model Participacao {
+  id          String  @id @default(cuid())
+  userId      String
+  salaCodigo  String
+  migalhas    Int     @default(0)
+  sprints     Int     @default(0)
+  sprintsHoje Int     @default(0)
+  dia         String  @default("")
+  tarefas     Json    @default("[]")
+  tarefaAtual String?
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sala        Sala    @relation(fields: [salaCodigo], references: [codigo], onDelete: Cascade)
+
+  @@unique([userId, salaCodigo])
+}

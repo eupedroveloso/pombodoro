@@ -1,17 +1,34 @@
 import express from 'express'
 import { createServer } from 'node:http'
 import { Server } from 'socket.io'
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, renameSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { PrismaClient } from '@prisma/client'
+import { OAuth2Client } from 'google-auth-library'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+// Segredos moram no .env.local (fora do git); em produção vêm do ambiente.
+try {
+  process.loadEnvFile(join(__dirname, '.env.local'))
+} catch {}
+
 const DATA_FILE = join(__dirname, 'data.json')
 const PORT = process.env.PORT || 3000
 
+const prisma = new PrismaClient()
+
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || ''
+const googleAuth = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null
+if (!GOOGLE_CLIENT_ID) console.warn('[pombodoro] GOOGLE_CLIENT_ID vazio — login com Google desligado (só convidados)')
+
+const SESSION_SECRET = process.env.SESSION_SECRET || randomBytes(32).toString('hex')
+if (!process.env.SESSION_SECRET) console.warn('[pombodoro] SESSION_SECRET ausente — sessões caem a cada restart')
+
 // Bump a cada mudança de física/protocolo: clientes com versão diferente
 // recarregam sozinhos — acaba o pombo fantasma de aba desatualizada.
-const VERSAO_APP = 16
+const VERSAO_APP = 17
 
 /* ─────────────────────────── regras da praça ─────────────────────────── */
 
@@ -78,9 +95,57 @@ function novaSala(codigo) {
   return { codigo, timer: novoTimer(), radio: novoRadio(), jogadores: new Map(), mural: [], manchas: [] }
 }
 
+/* Salas carregam do banco sob demanda, uma vez, e daí vivem em memória.
+   O Map de promessas segura o caso de dois pombos pousarem na mesma praça
+   fria ao mesmo tempo — só a primeira chamada toca o banco. */
+const salasCarregando = new Map()
+
 function pegarSala(codigo) {
-  if (!salas.has(codigo)) salas.set(codigo, novaSala(codigo))
-  return salas.get(codigo)
+  if (salas.has(codigo)) return Promise.resolve(salas.get(codigo))
+  if (salasCarregando.has(codigo)) return salasCarregando.get(codigo)
+  const promessa = carregarSala(codigo)
+    .catch((e) => {
+      console.error(`[pombodoro] falhei ao carregar a sala ${codigo} do banco:`, e.message)
+      return novaSala(codigo)
+    })
+    .then((sala) => {
+      if (!salas.has(codigo)) salas.set(codigo, sala)
+      salasCarregando.delete(codigo)
+      return salas.get(codigo)
+    })
+  salasCarregando.set(codigo, promessa)
+  return promessa
+}
+
+async function carregarSala(codigo) {
+  const sala = novaSala(codigo)
+  const dados = await prisma.sala.findUnique({
+    where: { codigo },
+    include: { participacoes: { include: { user: true } } },
+  })
+  if (!dados) return sala
+  sala.timer = novoTimer(dados.focusSec, dados.breakSec)
+  for (const p of dados.participacoes) {
+    sala.jogadores.set(p.userId, {
+      id: p.userId,
+      nome: p.user.nome,
+      crista: p.user.crista,
+      corpo: p.user.corpo,
+      acessorio: p.user.acessorio || 0,
+      migalhas: p.migalhas,
+      sprints: p.sprints,
+      sprintsHoje: p.dia === chaveDoDia() ? p.sprintsHoje : 0,
+      dia: chaveDoDia(),
+      online: false,
+      offlineDesde: 0, // veio do banco frio: não aparece no desenho até pousar
+      socketId: null,
+      focoValido: false,
+      saiu: false,
+      tarefas: Array.isArray(p.tarefas) ? p.tarefas : [],
+      tarefaAtual: p.tarefaAtual || null,
+    })
+  }
+  return sala
 }
 
 function anunciar(sala, texto) {
@@ -119,75 +184,103 @@ function liberarTarefaAtual(jogador, avisar) {
   }
 }
 
-function carregar() {
+/* Migração única: se ainda existe um data.json da era pré-banco, sobe tudo
+   pro Postgres (sem sobrescrever o que já está lá) e renomeia o arquivo. */
+async function importarDataJson() {
   if (!existsSync(DATA_FILE)) return
   try {
     const bruto = JSON.parse(readFileSync(DATA_FILE, 'utf8'))
     for (const [codigo, dados] of Object.entries(bruto)) {
-      const sala = novaSala(codigo)
-      if (Number.isFinite(dados.focusSec)) sala.timer = novoTimer(dados.focusSec, dados.breakSec)
+      await prisma.sala.upsert({
+        where: { codigo },
+        update: {},
+        create: { codigo, focusSec: dados.focusSec || FOCO_PADRAO, breakSec: dados.breakSec || PAUSA_PADRAO },
+      })
       for (const [id, j] of Object.entries(dados.jogadores || {})) {
-        sala.jogadores.set(id, {
-          id,
-          nome: j.nome,
-          crista: j.crista,
-          corpo: j.corpo,
-          acessorio: j.acessorio || 0,
-          migalhas: j.migalhas || 0,
-          sprints: j.sprints || 0,
-          sprintsHoje: j.dia === chaveDoDia() ? j.sprintsHoje || 0 : 0,
-          dia: chaveDoDia(),
-          online: false,
-          offlineDesde: Date.now(),
-          socketId: null,
-          focoValido: false,
-          saiu: false,
-          tarefas: Array.isArray(j.tarefas) ? j.tarefas : [],
-          tarefaAtual: j.tarefaAtual || null,
+        await prisma.user.upsert({
+          where: { id },
+          update: {},
+          create: { id, nome: j.nome || 'Pombo', crista: j.crista || 0, corpo: j.corpo || 0, acessorio: j.acessorio || 0 },
+        })
+        await prisma.participacao.upsert({
+          where: { userId_salaCodigo: { userId: id, salaCodigo: codigo } },
+          update: {},
+          create: {
+            userId: id,
+            salaCodigo: codigo,
+            migalhas: j.migalhas || 0,
+            sprints: j.sprints || 0,
+            sprintsHoje: j.sprintsHoje || 0,
+            dia: j.dia || '',
+            tarefas: j.tarefas || [],
+            tarefaAtual: j.tarefaAtual || null,
+          },
         })
       }
-      salas.set(codigo, sala)
     }
+    renameSync(DATA_FILE, `${DATA_FILE}.importado`)
+    console.log('[pombodoro] data.json importado pro banco (arquivo renomeado pra data.json.importado)')
   } catch (e) {
-    console.error('[pombodoro] não consegui ler data.json, começando limpo:', e.message)
+    console.error('[pombodoro] não consegui importar o data.json:', e.message)
   }
 }
 
+/* O jogo continua rodando 100% em memória; o banco é o retrato durável.
+   O debounce de 1.5s junta rajadas de mudança num flush só, e o flag
+   `salvando` impede dois flushes concorrentes de se atropelarem. */
 let salvarPendente = null
+let salvando = false
+let salvarDeNovo = false
+
 function salvar() {
   if (salvarPendente) return
   salvarPendente = setTimeout(() => {
     salvarPendente = null
-    const saida = {}
+    persistir()
+  }, 1500)
+}
+
+async function persistir() {
+  if (salvando) {
+    salvarDeNovo = true
+    return
+  }
+  salvando = true
+  try {
     for (const [codigo, sala] of salas) {
-      saida[codigo] = {
-        focusSec: sala.timer.focusSec,
-        breakSec: sala.timer.breakSec,
-        jogadores: Object.fromEntries(
-          [...sala.jogadores].map(([id, j]) => [
-            id,
-            {
-              nome: j.nome,
-              crista: j.crista,
-              corpo: j.corpo,
-              acessorio: j.acessorio || 0,
-              migalhas: j.migalhas,
-              sprints: j.sprints,
-              sprintsHoje: j.sprintsHoje,
-              dia: j.dia,
-              tarefas: j.tarefas || [],
-              tarefaAtual: j.tarefaAtual || null,
-            },
-          ])
-        ),
+      await prisma.sala.upsert({
+        where: { codigo },
+        update: { focusSec: sala.timer.focusSec, breakSec: sala.timer.breakSec },
+        create: { codigo, focusSec: sala.timer.focusSec, breakSec: sala.timer.breakSec },
+      })
+      for (const [id, j] of sala.jogadores) {
+        // O visual e o nome são da conta (User); o progresso é da praça (Participacao).
+        const pombo = { nome: j.nome, crista: j.crista, corpo: j.corpo, acessorio: j.acessorio || 0 }
+        await prisma.user.upsert({ where: { id }, update: pombo, create: { id, ...pombo } })
+        const progresso = {
+          migalhas: j.migalhas,
+          sprints: j.sprints,
+          sprintsHoje: j.sprintsHoje,
+          dia: j.dia,
+          tarefas: j.tarefas || [],
+          tarefaAtual: j.tarefaAtual || null,
+        }
+        await prisma.participacao.upsert({
+          where: { userId_salaCodigo: { userId: id, salaCodigo: codigo } },
+          update: progresso,
+          create: { userId: id, salaCodigo: codigo, ...progresso },
+        })
       }
     }
-    try {
-      writeFileSync(DATA_FILE, JSON.stringify(saida, null, 2))
-    } catch (e) {
-      console.error('[pombodoro] falhei ao salvar:', e.message)
+  } catch (e) {
+    console.error('[pombodoro] falhei ao salvar no banco:', e.message)
+  } finally {
+    salvando = false
+    if (salvarDeNovo) {
+      salvarDeNovo = false
+      salvar()
     }
-  }, 1500)
+  }
 }
 
 /* ─────────────────────────── serialização pro cliente ─────────────────────────── */
@@ -241,12 +334,61 @@ function estado(sala) {
 
 const emFoco = (sala) => sala.timer.fase === 'foco' && sala.timer.rodando
 
+/* ─────────────────────────── sessão ─────────────────────────── */
+/* Cookie httpOnly com "id.validade.assinatura" — HMAC caseiro, sem
+   dependência de sessão no banco: verificar é só reassinar e comparar. */
+
+const COOKIE_SESSAO = 'pombodoro_sessao'
+const SESSAO_DIAS = 90
+
+function assinarSessao(userId) {
+  const exp = Date.now() + SESSAO_DIAS * 864e5
+  const mac = createHmac('sha256', SESSION_SECRET).update(`${userId}.${exp}`).digest('base64url')
+  return `${Buffer.from(userId).toString('base64url')}.${exp}.${mac}`
+}
+
+function lerSessao(token) {
+  if (!token) return null
+  const [idB64, expStr, mac] = token.split('.')
+  if (!idB64 || !expStr || !mac) return null
+  let userId
+  try {
+    userId = Buffer.from(idB64, 'base64url').toString()
+  } catch {
+    return null
+  }
+  const exp = Number(expStr)
+  if (!userId || !Number.isFinite(exp) || exp < Date.now()) return null
+  const esperado = createHmac('sha256', SESSION_SECRET).update(`${userId}.${exp}`).digest('base64url')
+  const a = Buffer.from(mac)
+  const b = Buffer.from(esperado)
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null
+  return userId
+}
+
+function sessaoDoCookie(headerCookie) {
+  const m = String(headerCookie || '').match(new RegExp(`(?:^|;\\s*)${COOKIE_SESSAO}=([^;]+)`))
+  return lerSessao(m ? decodeURIComponent(m[1]) : null)
+}
+
+const usuarioPublico = (u) => ({
+  id: u.id,
+  nome: u.nome,
+  email: u.email,
+  foto: u.foto,
+  crista: u.crista,
+  corpo: u.corpo,
+  acessorio: u.acessorio,
+  google: Boolean(u.googleId),
+})
+
 /* ─────────────────────────── servidor ─────────────────────────── */
 
 const app = express()
 const http = createServer(app)
 const io = new Server(http)
 
+app.use(express.json())
 app.use(
   express.static(join(__dirname, 'public'), {
     // Sempre revalidar: o navegador não pode servir física velha do cache.
@@ -257,16 +399,79 @@ app.use(
 )
 app.get('/r/:codigo', (_req, res) => res.sendFile(join(__dirname, 'public', 'index.html')))
 
+/* ── login ── */
+
+app.get('/auth/config', (_req, res) => res.json({ googleClientId: GOOGLE_CLIENT_ID || null }))
+
+app.post('/auth/google', async (req, res) => {
+  if (!googleAuth) return res.status(503).json({ erro: 'Login com Google não configurado neste servidor' })
+  try {
+    const ticket = await googleAuth.verifyIdToken({
+      idToken: String(req.body?.credential || ''),
+      audience: GOOGLE_CLIENT_ID,
+    })
+    const p = ticket.getPayload()
+    const user = await prisma.user.upsert({
+      where: { googleId: p.sub },
+      // Nome e visual do pombo NÃO voltam pro padrão do Google a cada login —
+      // o que o jogador customizou na portaria é dele.
+      update: { email: p.email || null, foto: p.picture || null },
+      create: {
+        id: `g-${p.sub}`,
+        googleId: p.sub,
+        email: p.email || null,
+        foto: p.picture || null,
+        nome: String(p.given_name || p.name || 'Pombo').trim().slice(0, 16) || 'Pombo',
+      },
+    })
+    res.setHeader(
+      'Set-Cookie',
+      `${COOKIE_SESSAO}=${encodeURIComponent(assinarSessao(user.id))}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSAO_DIAS * 86400}`
+    )
+    res.json({ user: usuarioPublico(user) })
+  } catch (e) {
+    console.error('[pombodoro] login google falhou:', e.message)
+    res.status(401).json({ erro: 'Não consegui validar seu login do Google' })
+  }
+})
+
+app.get('/auth/eu', async (req, res) => {
+  const userId = sessaoDoCookie(req.headers.cookie)
+  if (!userId) return res.status(401).json({ erro: 'sem sessão' })
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } })
+    if (!user) return res.status(401).json({ erro: 'sem sessão' })
+    res.json({ user: usuarioPublico(user) })
+  } catch (e) {
+    console.error('[pombodoro] /auth/eu falhou:', e.message)
+    res.status(500).json({ erro: 'banco fora do ar' })
+  }
+})
+
+app.post('/auth/sair', (_req, res) => {
+  res.setHeader('Set-Cookie', `${COOKIE_SESSAO}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`)
+  res.json({ ok: true })
+})
+
+// A identidade do socket nasce do cookie, uma vez, no handshake. Logado,
+// o id do payload é ignorado — ninguém encarna o pombo dos outros.
+io.use((socket, next) => {
+  socket.data.userId = sessaoDoCookie(socket.handshake.headers.cookie)
+  next()
+})
+
 io.on('connection', (socket) => {
   let sala = null
   let jogador = null
 
-  socket.on('entrar', (payload = {}) => {
+  socket.on('entrar', async (payload = {}) => {
     const codigo = String(payload.codigo || '').toUpperCase().slice(0, 8)
-    const id = String(payload.id || '').slice(0, 40)
+    // Logado: a identidade é a da conta (cookie). Convidado: o id do navegador.
+    const id = socket.data.userId || String(payload.id || '').slice(0, 40)
     if (!codigo || !id) return
 
-    sala = pegarSala(codigo)
+    sala = await pegarSala(codigo)
+    if (!socket.connected) return // caiu enquanto a sala carregava do banco
     socket.join(codigo)
 
     const existente = sala.jogadores.get(id)
@@ -729,7 +934,8 @@ function fecharSprint(sala) {
   salvar() // migalhas e/ou tarefas podem ter mudado mesmo sem premiados
 }
 
-carregar()
-http.listen(PORT, () => {
-  console.log(`\n  🐦  Pombodoro voando em http://localhost:${PORT}\n`)
+importarDataJson().finally(() => {
+  http.listen(PORT, () => {
+    console.log(`\n  🐦  Pombodoro voando em http://localhost:${PORT}\n`)
+  })
 })

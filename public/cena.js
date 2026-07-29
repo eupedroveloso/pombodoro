@@ -1,15 +1,17 @@
-import { spriteCanvas, CENARIO, CRISTAS, CORPOS, PALETA } from './sprites.js'
+import { spriteCanvas, CRISTAS, CORPOS, PALETA } from './sprites.js'
+import { pintarEmCanvas, niveisEm, LARG, ALT, CHAO } from './cenario.js'
 
-/* A cena é desenhada num canvas lógico de 280x160 e depois ampliada por um
+/* A cena é desenhada num canvas lógico de 640x320 e depois ampliada por um
    fator INTEIRO. É isso que mantém o pixel quadrado em qualquer tela.
-   Nomes e balões vêm depois, já na resolução real, pra não virarem borrão. */
+   Nomes e balões vêm depois, já na resolução real, pra não virarem borrão.
 
-// Mundo 640x320 (2:1, mesmo aspecto do fundo.png). O dobro do anterior:
-// o pombo fica pequeno diante da cidade e a câmera + zoom exploram o resto.
-const LARG = 640
-const ALT = 320
+   O cenário vem do cenario.js, desenhado pixel a pixel NESTA resolução —
+   mesma densidade e mesma paleta chapada dos sprites. Era um PNG grande
+   reamostrado, e é por isso que os pombos pareciam colados: pixel borrado
+   por baixo, pixel duro por cima. */
+
 const SPRITE = 24 // largura do pombo
-const LINHA_CHAO = 270 // meio da faixa de pedra portuguesa (pombos andam 'dentro' da calçada)
+const LINHA_CHAO = CHAO // meio da faixa de pedra portuguesa
 
 const SUJEIRA_MAX = 5 // no nível máximo o pombo desaparece debaixo do cocô
 const SUJO_BASE_MS = 12000
@@ -620,6 +622,8 @@ function quadro(agora) {
 
     if (agora >= v.sujoAte && v.sujeira) v.sujeira = 0 // sujeira expirou: limpou de vez
 
+    desenharSombra(v.x, v.alt)
+
     if (v.sujeira >= SUJEIRA_MAX && agora < v.sujoAte) {
       // Coberto até desaparecer: só os olhos (piscando) espiam por cima do montinho.
       desenharCobertoDeCoco(x, y, piscando)
@@ -676,44 +680,44 @@ function passear(v, agora) {
 
 const TETO = -(LINHA_CHAO - 26) // altura máxima de voo, em px lógicos
 
-/* Plataformas: topo onde dá pra pousar/andar. alt é negativo (acima do chão).
-   Todas casam com objetos que JÁ EXISTEM no cenário — nada desenhado por cima.
-   Sai da beirada → cai; pousa de cima → fica (one-way, sobe atravessando). */
-/* Medidas verificadas VISUALMENTE: overlay das linhas sobre o fundo.png
-   (scratchpad, /tmp/colisao-v3.png) até cada linha casar com o pixel real. */
-const PLATAFORMAS = [
-  { x1: 424, x2: 480, alt: -21 }, // borda da jardineira (o ipê nasce dela)
-  { x1: 163, x2: 209, alt: -33 }, // banco de concreto 1
-  { x1: 363, x2: 411, alt: -33 }, // banco de concreto 2
-  { x1: 613, x2: 629, alt: -42 }, // lixeira verde
-  { x1: 110, x2: 134, alt: -56 }, // capacete do orelhão
-  { x1: 495, x2: 561, alt: -61 }, // cobertura do ponto de ônibus
-  { x1: 26, x2: 94, alt: -66 }, // cúpula da banca de jornal
-  { x1: 583, x2: 601, alt: -66 }, // placa de trânsito
-  // Muro: SÓ os trechos visíveis, na altura CONFERIDA em recorte ampliado
-  // (/tmp/cap-zoom2.png): a borda real é -72. Atrás do coreto, da árvore,
-  // da banca e do ponto não há pouso — o capeamento fica escondido.
-  { x1: 0, x2: 24, alt: -81 },
-  { x1: 96, x2: 108, alt: -81 },
-  { x1: 136, x2: 236, alt: -81 },
-  { x1: 359, x2: 404, alt: -81 },
-  { x1: 562, x2: 582, alt: -81 },
-  { x1: 602, x2: 612, alt: -81 },
-  { x1: 630, x2: 640, alt: -81 },
-  { x1: 283, x2: 305, alt: -96 }, // pico do telhado do coreto (poleiro)
-  { x1: 420, x2: 476, alt: -95 }, // copa do ipê roxo
-]
+/* ── colisão ─────────────────────────────────────────────────────────────
+   Não existe mais tabela de plataformas escrita à mão. O cenario.js registra
+   cada topo pisável na MESMA linha em que pinta o pixel, e entrega isso por
+   coluna: `niveisEm(x)` devolve as altitudes com apoio naquele x, ordenadas
+   de cima pra baixo, sempre terminando em 0 (a calçada). O que dá pra pisar
+   é, literalmente, o que está desenhado — não tem como desalinhar.
+
+   Consulta é O(1) na coluna (1 a 4 níveis cada), em vez de varrer uma lista
+   de plataformas a cada pombo a cada quadro.
+
+   Apoio é medido no CENTRO DAS PATAS, não no centro do sprite: as patas
+   ficam nas colunas 7..12 do sprite de 24px. Isso é o que faz o pombo poder
+   ficar na beiradinha do banco — como pombo de verdade fica — e cair no
+   instante em que os pés passam da quina. */
+const PE = 10
+
+const colunaDe = (x) => niveisEm(x + PE)
 
 /** Superfície mais próxima ABAIXO de quem está em `alt` no ponto x. */
 function alturaDoChaoSob(x, alt) {
-  const cx = x + SPRITE / 2
-  let melhor = 0 // o chão da praça é a plataforma universal
-  for (const p of PLATAFORMAS) {
-    // Margem interna em plataformas largas: exige apoio de verdade, senão o
-    // pombo fica com meio corpo pra fora da beirada, "pendurado no ar".
-    const folga = p.x2 - p.x1 > 18 ? 4 : 1
-    if (cx < p.x1 + folga || cx > p.x2 - folga) continue
-    if (p.alt >= alt - 0.001 && p.alt < melhor) melhor = p.alt
+  const col = colunaDe(x)
+  for (let i = 0; i < col.length; i++) if (col[i] >= alt - 0.001) return col[i]
+  return 0
+}
+
+/* Degrau que o pombo sobe andando. Sem isso, subir a água do telhado do
+   coreto (que sobe ~1px a cada 2px) faria ele despencar em vez de escalar. */
+const DEGRAU = 3.2
+
+/** Superfície que SUSTENTA quem está em `alt` — a mesma em que já pisa ou um
+    degrau curto acima. `null` = não tem nada sob as patas, ou seja: queda. */
+function apoioSob(x, alt) {
+  const col = colunaDe(x)
+  let melhor = null
+  for (const v of col) {
+    const d = alt - v // > 0 = nível acima do pombo (degrau pra subir)
+    if (d < -0.5 || d > DEGRAU) continue
+    if (melhor === null || Math.abs(alt - v) < Math.abs(alt - melhor)) melhor = v
   }
   return melhor
 }
@@ -756,15 +760,14 @@ function moverLocal(v, agora) {
   }
 }
 
-/** Superfície (chão ou plataforma) a até `raio` px de `alt` no ponto x. */
+/** Superfície a até `raio` px de `alt` no ponto x — pra colar pombo remoto
+    que ficou boiando (drift de rede ou cliente de versão velha). */
 function superficieProxima(x, alt, raio) {
-  const cx = x + SPRITE / 2
+  const col = colunaDe(x)
   let melhor = null
-  if (Math.abs(alt) <= raio) melhor = 0 // chão
-  for (const p of PLATAFORMAS) {
-    if (cx < p.x1 + 1 || cx > p.x2 - 1) continue
-    const d = Math.abs(p.alt - alt)
-    if (d <= raio && (melhor === null || d < Math.abs(melhor - alt))) melhor = p.alt
+  for (const v of col) {
+    const d = Math.abs(v - alt)
+    if (d <= raio && (melhor === null || d < Math.abs(melhor - alt))) melhor = v
   }
   return melhor
 }
@@ -796,15 +799,16 @@ function seguirRede(v) {
   else if (v.vy === 0) v.alt = altAlvo
 }
 
-/** Gravidade + empuxo + teto + plataformas: só pro MEU pombo. */
+/** Gravidade + empuxo + teto + superfícies: só pro MEU pombo. */
 function fisicaLocal(v) {
-  const suporte = alturaDoChaoSob(v.x, v.alt)
-  const apoiado = v.vy === 0 && Math.abs(v.alt - suporte) < 0.5
-
-  if (apoiado) {
-    v.alt = suporte
-    v.noAr = false
-    return
+  // Pisando: cola na superfície de apoio (subindo degrau curto, se houver).
+  if (v.vy === 0) {
+    const apoio = apoioSob(v.x, v.alt)
+    if (apoio !== null) {
+      v.alt = apoio
+      v.noAr = false
+      return
+    }
   }
 
   const altAntes = v.alt
@@ -814,57 +818,59 @@ function fisicaLocal(v) {
     v.alt = TETO
     v.vy = Math.max(v.vy, 0)
   }
-  // Caindo e cruzou uma superfície que estava abaixo? Pousou nela.
+  // Caindo e cruzou uma superfície que estava abaixo? Pousou nela. Subindo,
+  // atravessa: toda superfície aqui é one-way, como manda o gênero.
   const chao = alturaDoChaoSob(v.x, altAntes)
   if (v.vy > 0 && v.alt >= chao) {
     v.alt = chao
     v.vy = 0
   }
-  v.noAr = !(v.vy === 0 && Math.abs(v.alt - alturaDoChaoSob(v.x, v.alt)) < 0.5)
+  v.noAr = !(v.vy === 0 && apoioSob(v.x, v.alt) !== null)
 }
 
-/** Pombos remotos: só o quique de impacto do soco; altitude vem da rede. */
+/** Pombos remotos: só o quique de impacto do soco; altitude vem da rede.
+    Quem apanhou em cima do banco cai de volta no banco, não atravessa até
+    a calçada. */
 function hopImpacto(v) {
   if (v.vy !== 0) {
+    const antes = v.alt
     v.alt += v.vy
     v.vy += 0.22
-    if (v.alt >= 0) {
-      v.alt = 0
+    const chao = alturaDoChaoSob(v.x, antes)
+    if (v.vy > 0 && v.alt >= chao) {
+      v.alt = chao
       v.vy = 0
     }
   }
 }
 
-/* Cenário urbano gerado (public/fundo.png). Desenhado no canvas lógico de
-   250px e depois ampliado com pixel duro — qualquer imagem vira "pixel art"
-   na densidade da cena. A calçada da imagem é alinhada à LINHA_CHAO. */
-const fundo = new Image()
-let fundoOk = false
-fundo.onload = () => (fundoOk = true)
-fundo.src = '/fundo.png'
+/* A praça é pintada UMA vez, num canvas de 640x320, e depois só copiada.
+   São alguns milhares de fillRect de 1px — de graça uma vez, caro sessenta
+   vezes por segundo. É esse mesmo passe que monta o mapa de colisão. */
+const cenario = document.createElement('canvas')
+cenario.width = LARG
+cenario.height = ALT
+pintarEmCanvas(cenario.getContext('2d'))
 
 function desenharCenario() {
-  offCtx.clearRect(0, 0, LARG, ALT)
+  // Cobre o quadro inteiro: não precisa limpar antes.
+  offCtx.drawImage(cenario, 0, 0)
+}
 
-  if (fundoOk) {
-    // Cena e imagem têm o mesmo aspecto 2:1 — full-bleed, sem corte.
-    // SEM suavização: o downscale vira vizinho-mais-próximo e o cenário
-    // ganha o mesmo grão de pixel dos sprites.
-    offCtx.drawImage(fundo, 0, 0, LARG, ALT)
-    return
-  }
-
-  // Fallback (imagem ainda carregando): o diorama liso de antes.
-  offCtx.fillStyle = CENARIO.ceu
-  offCtx.fillRect(0, 0, LARG, ALT)
-  offCtx.fillStyle = CENARIO.chao
-  offCtx.beginPath()
-  offCtx.ellipse(LARG / 2, LINHA_CHAO + 1, LARG * 0.44, 9, 0, 0, Math.PI * 2)
-  offCtx.fill()
-  offCtx.fillStyle = CENARIO.chaoLuz
-  offCtx.beginPath()
-  offCtx.ellipse(LARG / 2, LINHA_CHAO - 1, LARG * 0.41, 6, 0, 0, Math.PI * 2)
-  offCtx.fill()
+/** Sombra do pombo na superfície embaixo dele. Some conforme sobe. É o que
+    prende o bicho no chão — sem ela, sprite chapado sobre fundo chapado
+    sempre parece adesivo. */
+function desenharSombra(x, alt) {
+  const chao = alturaDoChaoSob(x, alt)
+  const queda = chao - alt // px até a superfície
+  if (queda > 44) return
+  const perto = 1 - queda / 44
+  const larg = Math.round(6 + 10 * perto)
+  offCtx.globalAlpha = 0.1 + 0.2 * perto
+  offCtx.fillStyle = '#2b2a2e'
+  offCtx.fillRect(Math.round(x + PE - larg / 2), LINHA_CHAO + chao, larg, 1)
+  if (perto > 0.6) offCtx.fillRect(Math.round(x + PE - larg / 2) + 2, LINHA_CHAO + chao + 1, larg - 4, 1)
+  offCtx.globalAlpha = 1
 }
 
 function desenharSprite(nome, x, y, corpo, crista, acessorio, espelhar, piscando) {

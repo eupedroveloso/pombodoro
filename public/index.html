@@ -20,6 +20,24 @@
     <h1>🐦 Pombodoro</h1>
     <p class="sub">A praça onde os pombos trabalham.</p>
 
+    <!-- passo 1: quem é você? (os dois passos começam escondidos;
+         o app.js decide qual mostrar depois de checar a sessão) -->
+    <div id="passoLogin" hidden>
+      <p class="login-chamada">Entre com sua conta pra guardar seu pombo, suas migalhas e suas tarefas em qualquer navegador.</p>
+      <div id="botaoGoogle"></div>
+      <p id="loginAviso" class="login-aviso" hidden></p>
+      <button type="button" id="btnConvidado" class="ghost">🐦 Continuar como convidado</button>
+      <p class="login-nota">Convidado vale só neste navegador.</p>
+    </div>
+
+    <!-- passo 2: monta o pombo e pousa -->
+    <div id="passoPombo" hidden>
+    <div id="contaChip" class="conta-chip" hidden>
+      <img id="contaFoto" alt="" hidden>
+      <span class="conta-texto">logado como <b id="contaNome"></b></span>
+      <button type="button" id="btnSairConta" class="chip">sair</button>
+    </div>
+
     <canvas id="previa" width="128" height="128"></canvas>
 
     <label class="campo">
@@ -55,6 +73,7 @@
         <button type="button" id="btnNovaPraca" class="chip">🎲 nova praça</button>
       </div>
     </div>
+    </div><!-- /passoPombo -->
   </div>
 </section>
 

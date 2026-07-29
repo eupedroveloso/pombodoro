@@ -2,10 +2,13 @@ import { CORPOS, CRISTAS, ACESSORIOS, spriteCanvas } from './sprites.js'
 import { iniciarCena, atualizarCena, dispararEmote, aplicarPosRemota, aplicarSoco, aplicarCoco, dispararFala, ajustarZoom, explodirPombo } from './cena.js'
 
 const $ = (id) => document.getElementById(id)
-const VERSAO_APP = 16
+const VERSAO_APP = 17
 const EMOTES = ['👍', '🔥', '☕', '😵', '🍞', '🎧']
 
-/* ─── identidade local ─────────────────────────────────────── */
+/* ─── identidade ───────────────────────────────────────────── */
+/* Duas vidas possíveis: logado (conta Google — o pombo mora no servidor e
+   te acompanha em qualquer navegador) ou convidado (identidade gerada e
+   guardada só neste navegador, como sempre foi). */
 
 // crypto.randomUUID só existe em contexto seguro (https/localhost) — acessando
 // pelo IP da rede ele é undefined e derrubaria o módulo inteiro.
@@ -14,14 +17,22 @@ const gerarId = () =>
   `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 
 const guardado = JSON.parse(localStorage.getItem('pombodoro') || '{}')
-const eu = {
+const convidado = {
   id: guardado.id || gerarId(),
   nome: guardado.nome || '',
   corpo: guardado.corpo ?? 0,
   crista: guardado.crista ?? Math.floor(Math.random() * CRISTAS.length),
   acessorio: guardado.acessorio ?? 0,
 }
-const salvarEu = () => localStorage.setItem('pombodoro', JSON.stringify(eu))
+let conta = null // usuário logado (vem de /auth/eu ou /auth/google)
+const eu = { ...convidado }
+
+// Convidado persiste no navegador; conta é o servidor quem guarda (no 'entrar').
+const salvarEu = () => {
+  if (conta) return
+  Object.assign(convidado, eu)
+  localStorage.setItem('pombodoro', JSON.stringify(convidado))
+}
 
 const gerarCodigo = () =>
   Array.from({ length: 5 }, () => 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 31)]).join('')
@@ -57,7 +68,6 @@ function atualizarPortaria() {
 /* ─── portaria ─────────────────────────────────────────────── */
 
 atualizarPortaria()
-$('nome').value = eu.nome
 
 function montarCores(container, cores, chave) {
   container.innerHTML = ''
@@ -117,10 +127,107 @@ function desenharPrevia() {
   ctx.drawImage(img, (cv.width - img.width * escala) / 2, (cv.height - img.height * escala) / 2, img.width * escala, img.height * escala)
 }
 
-montarCores($('opcoesCrista'), CRISTAS, 'crista')
-montarCores($('opcoesCorpo'), CORPOS, 'corpo')
-montarAcessorios()
-desenharPrevia()
+/* ─── login ────────────────────────────────────────────────── */
+/* A portaria tem dois passos: (1) quem é você — Google ou convidado —
+   e (2) montar o pombo e pousar. Sessão viva pula direto pro passo 2. */
+
+function mostrarPombo() {
+  $('passoLogin').hidden = true
+  $('passoPombo').hidden = false
+  $('nome').value = eu.nome
+  montarCores($('opcoesCrista'), CRISTAS, 'crista')
+  montarCores($('opcoesCorpo'), CORPOS, 'corpo')
+  montarAcessorios()
+  desenharPrevia()
+}
+
+function adotarConta(user) {
+  conta = user
+  eu.id = user.id
+  eu.nome = user.nome || ''
+  eu.crista = user.crista ?? 0
+  eu.corpo = user.corpo ?? 0
+  eu.acessorio = user.acessorio ?? 0
+  $('contaChip').hidden = false
+  $('contaNome').textContent = user.email || user.nome
+  if (user.foto) {
+    $('contaFoto').src = user.foto
+    $('contaFoto').hidden = false
+  }
+  mostrarPombo()
+}
+
+function mostrarLogin(googleClientId) {
+  $('passoPombo').hidden = true
+  $('passoLogin').hidden = false
+  if (!googleClientId) {
+    $('loginAviso').hidden = false
+    $('loginAviso').textContent = 'Login com Google ainda não configurado neste servidor — entra como convidado por enquanto.'
+    return
+  }
+  const tag = document.createElement('script')
+  tag.src = 'https://accounts.google.com/gsi/client'
+  tag.onload = () => {
+    google.accounts.id.initialize({ client_id: googleClientId, callback: aoReceberCredencial })
+    google.accounts.id.renderButton($('botaoGoogle'), {
+      theme: 'filled_black',
+      size: 'large',
+      shape: 'pill',
+      text: 'continue_with',
+      locale: 'pt-BR',
+    })
+  }
+  document.head.append(tag)
+}
+
+async function aoReceberCredencial(resposta) {
+  try {
+    const r = await fetch('/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential: resposta.credential }),
+    })
+    const corpo = await r.json()
+    if (!r.ok) throw new Error(corpo.erro || 'login falhou')
+    adotarConta(corpo.user)
+  } catch (e) {
+    $('loginAviso').hidden = false
+    $('loginAviso').textContent = `⚠️ ${e.message}`
+  }
+}
+
+async function iniciarPortaria() {
+  let googleClientId = null
+  try {
+    const [rConfig, rEu] = await Promise.all([fetch('/auth/config'), fetch('/auth/eu')])
+    googleClientId = (await rConfig.json()).googleClientId
+    if (rEu.ok) {
+      adotarConta((await rEu.json()).user)
+      return
+    }
+  } catch {
+    // servidor de auth fora do ar: segue como convidado
+  }
+  mostrarLogin(googleClientId)
+}
+
+$('btnConvidado').onclick = () => {
+  conta = null
+  Object.assign(eu, convidado)
+  $('contaChip').hidden = true
+  mostrarPombo()
+}
+
+// Sair da conta recarrega a página: o jeito mais simples de garantir que
+// nada da sessão antiga (socket, pombo, prefill) fique pra trás.
+$('btnSairConta').onclick = async () => {
+  try {
+    await fetch('/auth/sair', { method: 'POST' })
+  } catch {}
+  location.reload()
+}
+
+iniciarPortaria()
 
 let naPraca = false
 let cenaIniciada = false
