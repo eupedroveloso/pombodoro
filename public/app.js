@@ -921,14 +921,19 @@ function iniciarRadio() {
           const faixa = radioAtual?.fila[radioAtual.indice]
           if (!faixa) return
           const codigo = Number(e?.data) || 0
+          // 2 = parâmetro, 5 = player HTML5: costuma ser tropeço do navegador,
+          // não defeito da música. Na PRIMEIRA vez nem denuncia a faixa —
+          // recarrega e dá uma segunda chance. Importa principalmente pra
+          // quem ouve sozinho: ali o quórum do servidor é de um só, então um
+          // tropeço bastaria pra pular uma música que estava boa.
+          if ((codigo === 2 || codigo === 5) && tentouDeNovo !== faixa.videoId) {
+            tentouDeNovo = faixa.videoId
+            setTimeout(() => sincronizarRadio(), 1500)
+            return
+          }
+          // Sem conserto, ou já tentei de novo e falhou: aí sim o servidor
+          // decide se pula (ver decidirPulo no server.js).
           socket.emit('radio', { acao: 'erro', videoId: faixa.videoId, codigo })
-          // Erro passageiro (2 = parâmetro, 5 = player HTML5): o servidor não
-          // vai pular só por minha causa, então eu me viro — recarrego a
-          // faixa uma vez antes de desistir.
-          if (codigo !== 2 && codigo !== 5) return
-          if (tentouDeNovo === faixa.videoId) return
-          tentouDeNovo = faixa.videoId
-          setTimeout(() => sincronizarRadio(), 1500)
         },
       },
     })
