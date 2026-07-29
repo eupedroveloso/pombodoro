@@ -4,3 +4,6 @@ data.json
 .env
 data.json.importado
 .claude/settings.local.json
+.vercel
+.env*
+.claude/worktrees/

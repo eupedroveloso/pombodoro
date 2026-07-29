@@ -1,9 +1,10 @@
 import { CORPOS, CRISTAS, ACESSORIOS, spriteCanvas } from './sprites.js'
-import { iniciarCena, atualizarCena, dispararEmote, aplicarPosRemota, aplicarSoco, aplicarCoco, dispararFala, ajustarZoom, explodirPombo } from './cena.js'
+import { iniciarCena, atualizarCena, dispararEmote, aplicarPosRemota, aplicarSoco, aplicarCoco, dispararFala, ajustarZoom, explodirPombo, sincronizarRelogio } from './cena.js'
 import { iconeHtml, iconeCanvas, montarIcones, EMOTE_ICONES } from './icones.js'
+import { iniciarPip, avisarPip } from './pip.js'
 
 const $ = (id) => document.getElementById(id)
-const VERSAO_APP = 18
+const VERSAO_APP = 20
 // A string do emoji continua sendo o ID no protocolo (o servidor repassa
 // como veio); só a EXIBIÇÃO vira ícone pixel art (EMOTE_ICONES).
 const EMOTES = ['👍', '🔥', '☕', '😵', '🍞', '🎧']
@@ -262,7 +263,12 @@ function entrarNaPraca() {
   // globais e loops que não dá pra ter em duplicata quando o pombo volta.
   if (!cenaIniciada) {
     cenaIniciada = true
-    iniciarCena($('cena'), (m) => naPraca && socket.emit('mover', m))
+    iniciarCena(
+      $('cena'),
+      (m) => naPraca && socket.emit('mover', m),
+      // Cocô MEU na cabeça de um pedestre: só festejo local, sem pontos.
+      (nome) => toast(`Na mosca! Acertou em cheio: ${nome}.`)
+    )
   }
   if (!radioIniciado) {
     radioIniciado = true
@@ -306,6 +312,8 @@ function sairDaPraca() {
   // trocar de tela, senão o próprio pombo não vê a própria morte.
   setTimeout(() => {
     ultimo = null
+    ultimoSolo = null
+    atualizarSeletorModo()
     ultimoMuralTs = null
     $('flutuantes').innerHTML = ''
     radioAtual = null
@@ -371,13 +379,18 @@ socket.on('estado', (s) => {
   }
   const anterior = ultimo
   deltaRelogio = s.agoraServidor - Date.now()
+  sincronizarRelogio(deltaRelogio) // os pedestres da cena andam nesse relógio
   ultimo = s
-  montarControles(s)
+  montarControles()
   montarPlacar(s)
   montarMural(s)
   atualizarCena({ fase: s.fase, rodando: s.rodando, jogadores: s.jogadores, manchas: s.manchas, meuId: eu.id })
-  aplicarTravaDoMural(s)
-  checarNovoCiclo(anterior, s)
+  aplicarTravaDoMural(s) // trava do mural é regra da SALA — vale até pra quem está em sprint solo
+  if (!soloAtivo()) checarNovoCiclo(anterior, s)
+  // Ponto único onde a fase da SALA pode ter virado: o PiP redesenha na hora
+  // e a notificação sai daqui (pip.js decide se cabe). Em modo solo a
+  // notificação é do relógio pessoal — aqui só redesenha (anterior = null).
+  avisarPip(soloAtivo() ? null : anterior, s)
   if (s.radio) {
     radioAtual = { ...s.radio, agora: s.agoraServidor }
     montarRadio(s.radio)
@@ -415,11 +428,13 @@ socket.on('explodiu', ({ id, x }) => explodirPombo(id, x))
 socket.on('recusado', (msg) => toast(msg))
 socket.on('sorteado', ({ nome }) => toast(`Deu ${nome}!`))
 
-socket.on('creditado', ({ ganho, bando, total }) => {
+socket.on('creditado', ({ ganho, bando, total, solo }) => {
   toast(
-    bando > 0
-      ? `Sprint fechado! +${ganho} migalhas (10 base + ${ganho - 10} de bando) · total ${total}`
-      : `Sprint fechado! +${ganho} migalhas · total ${total}`
+    solo
+      ? `Sprint solo fechado! +${ganho} migalhas · total ${total}`
+      : bando > 0
+        ? `Sprint fechado! +${ganho} migalhas (10 base + ${ganho - 10} de bando) · total ${total}`
+        : `Sprint fechado! +${ganho} migalhas · total ${total}`
   )
   pedirRecado()
 })
@@ -434,57 +449,171 @@ function restanteAgora() {
   return Math.max(0, ultimo.restante - Math.max(0, passou))
 }
 
-setInterval(() => {
-  const r = restanteAgora()
-  if (r === null) return
+/* ─── sprint solo ──────────────────────────────────────────────
+   Relógio pessoal, com a mesma autoridade no servidor e o mesmo padrão do
+   da sala: 'estadoSolo' chega só nas viradas (e nas ações do dono), com o
+   relógio do servidor junto — daqui pra frente é extrapolação local.
+   O modo ativo (sala ou solo) decide o que o relógio grande, o PiP e os
+   controles do header mostram e comandam. */
 
-  const m = Math.floor(r / 60)
-  const s = r % 60
+let ultimoSolo = null // último estadoSolo com ativo=true; null = modo sala
+let deltaSolo = 0
+
+const soloAtivo = () => Boolean(ultimoSolo?.ativo)
+
+function restanteSoloAgora() {
+  if (!ultimoSolo) return null
+  if (!ultimoSolo.rodando) return ultimoSolo.restante
+  const passou = Math.floor((Date.now() + deltaSolo - ultimoSolo.agoraServidor) / 1000)
+  return Math.max(0, ultimoSolo.restante - Math.max(0, passou))
+}
+
+/** Retrato do modo ATIVO — é isso que relógio grande, PiP e controles usam. */
+function estadoAtivo() {
+  if (soloAtivo()) {
+    return {
+      solo: true,
+      restante: restanteSoloAgora(),
+      fase: ultimoSolo.fase,
+      rodando: ultimoSolo.rodando,
+      focusSec: ultimoSolo.focusSec,
+      breakSec: ultimoSolo.breakSec,
+    }
+  }
+  if (!ultimo) return null
+  return {
+    solo: false,
+    restante: restanteAgora(),
+    fase: ultimo.fase,
+    rodando: ultimo.rodando,
+    focusSec: ultimo.focusSec,
+    breakSec: ultimo.breakSec,
+  }
+}
+
+/* Os mesmos gestos (play/pause/reset/config) caem no relógio do modo ativo. */
+function enviarTimer(acao) {
+  soloAtivo() ? socket.emit('solo', { acao }) : socket.emit('timer', { acao })
+}
+
+function enviarConfig(focusMin, breakMin) {
+  soloAtivo()
+    ? socket.emit('solo', { acao: 'config', focusMin, breakMin })
+    : socket.emit('config', { focusMin, breakMin })
+}
+
+function atualizarSeletorModo() {
+  $('btnModoSala').setAttribute('aria-pressed', String(!soloAtivo()))
+  $('btnModoSolo').setAttribute('aria-pressed', String(soloAtivo()))
+}
+
+$('btnModoSala').onclick = () => soloAtivo() && socket.emit('solo', { acao: 'desativar' })
+$('btnModoSolo').onclick = () => !soloAtivo() && socket.emit('solo', { acao: 'ativar' })
+
+socket.on('estadoSolo', (s) => {
+  const anterior = ultimoSolo
+  deltaSolo = s.agoraServidor - Date.now()
+  ultimoSolo = s.ativo ? s : null
+  atualizarSeletorModo()
+  montarControles()
+  if (ultimoSolo) {
+    // Virada de fase do MEU sprint: notificação e PiP respondem ao modo ativo.
+    avisarPip(anterior?.ativo ? anterior : null, ultimoSolo)
+    checarNovoCicloSolo(anterior, ultimoSolo)
+  } else {
+    avisarPip(null, ultimo) // voltou pro relógio da sala: só redesenha a janelinha
+  }
+})
+
+/* Novo ciclo de foco SOLO começando: mesmo convite pra escolher tarefa. */
+function checarNovoCicloSolo(anterior, s) {
+  const fresco = (st) => st?.ativo && st.fase === 'foco' && st.rodando && st.restante === st.focusSec
+  if (fresco(s) && !fresco(anterior) && !tarefaAtualId) abrirModalTarefa()
+}
+
+setInterval(() => {
+  const e = estadoAtivo()
+  if (!e || e.restante === null) return
+
+  const m = Math.floor(e.restante / 60)
+  const s = e.restante % 60
   $('relogio').textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 
   const rotulo = $('rotuloFase')
-  rotulo.textContent = ultimo.fase === 'foco' ? 'Foco' : 'Migalha'
-  rotulo.classList.toggle('pausa', ultimo.fase === 'pausa')
-  rotulo.classList.toggle('parado', !ultimo.rodando)
-  $('proxima').textContent = !ultimo.rodando
+  rotulo.textContent = `${e.solo ? 'Solo · ' : ''}${e.fase === 'foco' ? 'Foco' : 'Migalha'}`
+  rotulo.classList.toggle('pausa', e.fase === 'pausa')
+  rotulo.classList.toggle('parado', !e.rodando)
+  rotulo.classList.toggle('solo', e.solo)
+  $('proxima').textContent = !e.rodando
     ? 'relógio parado'
-    : ultimo.fase === 'foco'
+    : e.fase === 'foco'
       ? 'até a pausa'
       : 'até o próximo sprint'
-  document.title = `${ultimo.rodando ? $('relogio').textContent : 'pausado'} · Pombodoro`
+  document.title = `${e.rodando ? $('relogio').textContent : 'pausado'} · Pombodoro`
 }, 250)
+
+/* ─── PiP: cronômetro flutuante ────────────────────────────── */
+/* O pip.js não tem relógio próprio: lê o MESMO restanteAgora() daqui
+   (extrapolação sobre o relógio do servidor) e a tarefa marcada no mural.
+   A virada de fase chega nele via avisarPip(), lá no handler de 'estado'. */
+iniciarPip({
+  botao: $('btnPip'),
+  obterEstado: () => {
+    const e = estadoAtivo()
+    if (!e) return null
+    return { ...e, tarefa: minhasTarefas.find((t) => t.id === tarefaAtualId)?.texto ?? null }
+  },
+  // Os botões da janelinha são os MESMOS gestos do header: caem no relógio
+  // do modo ativo (sala ou solo) via enviarTimer/enviarConfig.
+  acoes: {
+    playPause: () => enviarTimer(estadoAtivo()?.rodando ? 'pause' : 'play'),
+    reset: () => enviarTimer('reset'),
+    duracao: (alvo, delta) => {
+      const e = estadoAtivo()
+      if (!e) return
+      let foco = Math.round(e.focusSec / 60)
+      let pausa = Math.round(e.breakSec / 60)
+      // Mesmos limites dos sliders da sala.
+      if (alvo === 'foco') foco = Math.max(1, Math.min(60, foco + delta))
+      else pausa = Math.max(1, Math.min(30, pausa + delta))
+      enviarConfig(foco, pausa)
+    },
+  },
+})
 
 /* ─── painéis ──────────────────────────────────────────────── */
 
-function montarControles(s) {
+/* Play, reset e sliders sempre refletem — e comandam — o modo ATIVO:
+   o relógio da sala, ou o sprint solo se o seletor estiver nele. */
+function montarControles() {
+  const e = estadoAtivo()
+  if (!e) return
   // Só re-renderiza o ícone quando o estado muda ('estado' chega toda hora).
-  const st = s.rodando ? 'pausa' : 'play'
+  const st = e.rodando ? 'pausa' : 'play'
   if ($('btnPlay').dataset.st !== st) {
     $('btnPlay').dataset.st = st
     $('btnPlay').innerHTML = iconeHtml(st, 24)
-    $('btnPlay').title = s.rodando ? 'Pausar' : 'Continuar'
+    $('btnPlay').title = e.rodando ? 'Pausar' : 'Continuar'
   }
 
   // Não puxa o slider da mão de quem está arrastando.
   const ativo = document.activeElement
-  if (ativo !== $('slFoco')) $('slFoco').value = Math.round(s.focusSec / 60)
-  if (ativo !== $('slPausa')) $('slPausa').value = Math.round(s.breakSec / 60)
+  if (ativo !== $('slFoco')) $('slFoco').value = Math.round(e.focusSec / 60)
+  if (ativo !== $('slPausa')) $('slPausa').value = Math.round(e.breakSec / 60)
   $('vFoco').textContent = `${$('slFoco').value}m`
   $('vPausa').textContent = `${$('slPausa').value}m`
 }
 
-$('btnPlay').onclick = () => socket.emit('timer', { acao: ultimo?.rodando ? 'pause' : 'play' })
-$('btnReset').onclick = () => socket.emit('timer', { acao: 'reset' })
+$('btnPlay').onclick = () => enviarTimer(estadoAtivo()?.rodando ? 'pause' : 'play')
+$('btnReset').onclick = () => enviarTimer('reset')
 
 for (const id of ['slFoco', 'slPausa']) {
   $(id).addEventListener('input', () => {
     $('vFoco').textContent = `${$('slFoco').value}m`
     $('vPausa').textContent = `${$('slPausa').value}m`
   })
-  // 'change' (soltou o dedo), não 'input': mudar duração reseta o sprint da sala.
-  $(id).addEventListener('change', () =>
-    socket.emit('config', { focusMin: +$('slFoco').value, breakMin: +$('slPausa').value })
-  )
+  // 'change' (soltou o dedo), não 'input': mudar duração reseta o sprint.
+  $(id).addEventListener('change', () => enviarConfig(+$('slFoco').value, +$('slPausa').value))
 }
 
 function montarPlacar(s) {

@@ -1,5 +1,6 @@
-import { spriteCanvas, CRISTAS, CORPOS, PALETA } from './sprites.js'
-import { pintarEmCanvas, niveisEm, LARG, ALT, CHAO } from './cenario.js'
+import { spriteCanvas, CRISTAS, CORPOS, PALETA, CABECA } from './sprites.js'
+import { pintarEmCanvas, niveisEm, LARG, ALT, CHAO, FIOS, desenharAnimados } from './cenario.js'
+import { PESSOAS, pessoaCanvas } from './pessoas.js'
 import { EMOTE_ICONES, iconeCanvas } from './icones.js'
 
 /* A cena é desenhada num canvas lógico de 640x320 e depois ampliada por um
@@ -14,9 +15,9 @@ import { EMOTE_ICONES, iconeCanvas } from './icones.js'
 const SPRITE = 36 // largura do pombo (grade 36x34)
 const LINHA_CHAO = CHAO // meio da faixa de pedra portuguesa
 
-const SUJEIRA_MAX = 5 // no nível máximo o pombo desaparece debaixo do cocô
-const SUJO_BASE_MS = 12000
-const SUJO_EXTRA_MS = 7000 // cada acerto novo estende a duração — fica sujo por mais tempo
+const SUJEIRA_MAX = 5 // nível máximo: emplastrado da cabeça ao rabo (mas o pombo continua pombo)
+const SUJO_BASE_MS = 10000 // ~10s sujo a contar do ÚLTIMO acerto
+const SUJO_EXTRA_MS = 0
 
 const COCO_MONTE_MAX = 80 // monte BEM grande: acumula bastante antes de parar de crescer
 const COCO_VIDA_CHEIA_MS = 60000 // fica sólido por 1 minuto
@@ -39,9 +40,22 @@ const OLHO = {
 let cv, ctx, off, offCtx
 let estado = { fase: 'foco', rodando: false, jogadores: [], meuId: null }
 
+/* Relógio do servidor (delta vs. Date.now()), o MESMO que o app.js já usa
+   pro pomodoro. É a base da simulação determinística dos pedestres: todo
+   cliente calcula a mesma cena a partir do mesmo relógio, sem tráfego. */
+let deltaServidor = 0
+export function sincronizarRelogio(delta) {
+  deltaServidor = delta
+}
+
 // Os pombos só ficam nos monitores com o relógio RODANDO em foco.
 // Foco pausado = todo mundo levanta e espairece.
 const trabalhando = () => estado.fase === 'foco' && estado.rodando
+// Sprint solo: quem trocou pro relógio pessoal obedece só a ele — senta no
+// próprio foco e passeia na própria pausa, mesmo com a sala em foco. Os
+// flags soloAtivo/soloFoco vêm do servidor dentro de cada jogador.
+const trabalhandoDe = (j) => (j?.soloAtivo ? Boolean(j.soloFoco) : trabalhando())
+const meuTrabalhando = () => trabalhandoDe(estado.jogadores.find((j) => j.id === estado.meuId))
 const vistas = new Map() // id -> estado de animação, só local
 let t = 0
 
@@ -50,15 +64,17 @@ const teclas = new Set()
 const TECLAS_JOGO = new Set(['a', 'd', 'w', 's', 'e', ' ', '1', '2', '3', '4', '5', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown'])
 let ultimoCoco = 0
 let aoMover = null // callback pro app.js mandar a posição pro servidor
+let aoAcertarPessoa = null // callback local: MEU cocô acertou um pedestre
 let ultimoEnvio = 0
 
 const eDigitando = () => ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)
 const minhaVista = () => vistas.get(estado.meuId)
 
-export function iniciarCena(canvas, cbMover) {
+export function iniciarCena(canvas, cbMover, cbAcertoPessoa) {
   cv = canvas
   ctx = cv.getContext('2d')
   aoMover = cbMover || null
+  aoAcertarPessoa = cbAcertoPessoa || null
   off = document.createElement('canvas')
   off.width = LARG
   off.height = ALT
@@ -66,21 +82,23 @@ export function iniciarCena(canvas, cbMover) {
   redimensionar()
   addEventListener('resize', redimensionar)
 
-  // Zoom no scroll. Acumula o delta porque trackpad dispara dezenas de
-  // eventos minúsculos por gesto — 1 passo a cada ~60 acumulados.
-  let acumuloRoda = 0
+  // Zoom contínuo no scroll: cada px de delta mexe no ALVO exponencialmente
+  // (~0.15% por px) e o quadro() persegue o alvo aos poucos. O ponto do
+  // mundo sob o cursor fica pregado durante o gesto (âncora no quadro()).
   cv.addEventListener(
     'wheel',
     (e) => {
       e.preventDefault()
-      acumuloRoda += e.deltaY
-      if (Math.abs(acumuloRoda) >= 60) {
-        ajustarZoom(acumuloRoda < 0 ? 1 : -1)
-        acumuloRoda = 0
-      }
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : 1) // linhas → px
+      mouse = { x: e.offsetX, y: e.offsetY, dentro: true }
+      zoomAlvo = Math.max(zoomMin(), Math.min(ZOOM_MAX, (zoomAlvo || zoomMin()) * Math.exp(-dy * 0.0015)))
     },
     { passive: false }
   )
+  cv.addEventListener('mousemove', (e) => {
+    mouse = { x: e.offsetX, y: e.offsetY, dentro: true }
+  })
+  cv.addEventListener('mouseleave', () => (mouse.dentro = false))
 
   addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase()
@@ -90,7 +108,7 @@ export function iniciarCena(canvas, cbMover) {
     if (k === '-' || k === '_') return ajustarZoom(-1)
     if (!TECLAS_JOGO.has(k)) return
     e.preventDefault()
-    if (trabalhando()) return // no foco rodando o pombo está no monitor
+    if (meuTrabalhando()) return // no MEU foco rodando (da sala ou solo) o pombo está no monitor
     teclas.add(k)
     const v = minhaVista()
     if (!v) return
@@ -281,6 +299,15 @@ export function aplicarCoco({ id, x, dir, alt, vitimas = [] }) {
     vy: 0.35 + Math.random() * 0.5,
     vitimas,
     aplicado: false,
+    // Trajetória NOMINAL (sem jitter), fechada no tempo: é ela que decide o
+    // acerto em PEDESTRE. Como nasce do broadcast e não tem Math.random(),
+    // todo cliente calcula o mesmo acerto — sem protocolo novo.
+    deId: id,
+    nasceu: agora,
+    x0: rabinho,
+    y0: LINHA_CHAO + (alt || 0) - 8,
+    dirCoco: dir > 0 ? 1 : -1,
+    acertouPessoa: false,
   })
 }
 
@@ -372,6 +399,54 @@ function animarFumaca(agora) {
   offCtx.globalAlpha = 1
 }
 
+/* ── cigarro ─────────────────────────────────────────────────────────────
+   O ciclo do cigarro (tragada a cada ~3.2s, brasa piscando no meio) é um só,
+   esteja o pombo parado (poses 'fumando*' com cigarro embutido), andando ou
+   voando (overlay 'cigarro'/'cigarroAceso' pendurado no bico). */
+function cicloCigarro(v, agora) {
+  const desde = agora - (v.fumaInicioEm || agora)
+  const tragando = desde % 3200 < 500
+  const aceso = tragando || Math.floor(agora / 480) % 2 === 1
+  return { tragando, aceso }
+}
+
+/** Fumaça saindo da PONTA do cigarro — ancorada no bico da pose via CABECA
+    (canto do bico do 'parado' em (0,10); a brasa fica 3 linhas abaixo). */
+function fumacaDoCigarro(v, agora, x, y, pose, espelhar, tragando) {
+  const [dx, dy] = CABECA[pose] || [0, 0]
+  const gx = dx - 1 < 0 ? 0 : dx - 1
+  const pontaX = Math.round(x) + (espelhar ? SPRITE - 1 - gx : gx)
+  const pontaY = Math.round(y) - 34 + 13 + dy
+  if (tragando) {
+    v.fumaFase = 'traga'
+  } else if (v.fumaFase === 'traga') {
+    v.fumaFase = 'idle'
+    emitirFumaca(pontaX, pontaY, true) // baforada funda ao soltar a fumaça
+  }
+  if (!tragando && agora - v.fumaUltimoWisp > 420) {
+    v.fumaUltimoWisp = agora
+    emitirFumaca(pontaX, pontaY, false)
+  }
+}
+
+/** Overlay do cigarro pra poses sem ele embutido (voo e passo). O mapa tem a
+    boquilha na coluna 1; cola em (dx-1, 10+dy) da pose, espelhando junto. */
+function desenharCigarro(pose, x, y, espelhar, aceso) {
+  const img = spriteCanvas(aceso ? 'cigarroAceso' : 'cigarro', 0, 0)
+  const [dx, dy] = CABECA[pose] || [0, 0]
+  const px = Math.round(x)
+  const py = Math.round(y) - 34
+  if (espelhar) {
+    offCtx.save()
+    offCtx.translate(px + SPRITE, py)
+    offCtx.scale(-1, 1)
+    offCtx.drawImage(img, dx - 1, 10 + dy)
+    offCtx.restore()
+  } else {
+    offCtx.drawImage(img, px + dx - 1, py + 10 + dy)
+  }
+}
+
 /** Manchas de sangue no chão (vêm do servidor; secam em 30min). */
 function desenharManchas() {
   for (const m of estado.manchas || []) {
@@ -405,29 +480,56 @@ function redimensionar() {
 
 /* ─── câmera ───────────────────────────────────────────────── */
 
-const cam = { x: 0, y: 0, ok: false }
+const cam = { x: 0, y: 0, ok: false } // canto superior-esquerdo, em px de mundo
 let miraCam = null // posição desenhada do MEU pombo neste quadro
-let zoomExtra = 0 // passos inteiros ACIMA do mínimo (mínimo = cobre o palco)
 
-/** +1 aproxima, -1 afasta. O piso é o zoom que cobre o palco sem bordas. */
+/* Zoom CONTÍNUO: zoomAlvo é a escala desejada (px de tela por px de mundo)
+   e escalaAtual persegue o alvo a ~12% por quadro. O piso é a escala que
+   cobre o palco sem mostrar borda; o teto é 10x. A escala é fracionária de
+   propósito — pixel art segue nítida com imageSmoothingEnabled=false, ao
+   custo de um tremor subpixel aceitável. */
+const ZOOM_MAX = 10
+let zoomAlvo = 0 // 0 = ainda não inicializado (adota o mínimo no 1º quadro)
+let escalaAtual = 0
+let mouse = { x: 0, y: 0, dentro: false } // âncora do zoom no cursor
+
+const zoomMin = () => (cv ? Math.max(cv.width / LARG, cv.height / ALT) : 1)
+
+/** Botões da UI e teclado (+/−): passos de 0.25 no alvo do zoom. */
 export function ajustarZoom(delta) {
-  zoomExtra = Math.max(0, Math.min(8, zoomExtra + delta))
+  if (!cv) return
+  zoomAlvo = Math.max(zoomMin(), Math.min(ZOOM_MAX, (zoomAlvo || zoomMin()) + delta * 0.25))
 }
 
 function atualizarCamera(viewW, viewH) {
-  const cx = miraCam ? miraCam.x : LARG / 2
-  const cy = miraCam ? miraCam.y : ALT * 0.7
-  const tx = Math.min(Math.max(cx - viewW / 2, 0), Math.max(0, LARG - viewW))
-  const ty = Math.min(Math.max(cy - viewH / 2, 0), Math.max(0, ALT - viewH))
+  const ax = miraCam ? miraCam.x : LARG / 2
+  const ay = miraCam ? miraCam.y : ALT * 0.7
+  const clX = (v) => Math.min(Math.max(v, 0), Math.max(0, LARG - viewW))
+  const clY = (v) => Math.min(Math.max(v, 0), Math.max(0, ALT - viewH))
   if (!cam.ok) {
-    cam.x = tx
-    cam.y = ty
+    cam.x = clX(ax - viewW / 2)
+    cam.y = clY(ay - viewH / 2)
     cam.ok = true
     return
   }
+  // Dead-zone: caixa central de 34% x 30% da janela. O pombo anda à vontade
+  // dentro dela; a câmera só corre quando ele encosta na borda da caixa —
+  // é o que evita o vaivém constante num mundo de 1280px.
+  const dzX = viewW * 0.17
+  const dzY = viewH * 0.15
+  const mx = cam.x + viewW / 2
+  const my = cam.y + viewH / 2
+  let tx = cam.x
+  let ty = cam.y
+  if (ax < mx - dzX) tx = ax + dzX - viewW / 2
+  else if (ax > mx + dzX) tx = ax - dzX - viewW / 2
+  if (ay < my - dzY) ty = ay + dzY - viewH / 2
+  else if (ay > my + dzY) ty = ay - dzY - viewH / 2
   // Persegue com suavização — a câmera "respira" atrás do pombo.
-  cam.x += (tx - cam.x) * 0.09
-  cam.y += (ty - cam.y) * 0.09
+  cam.x += (clX(tx) - cam.x) * 0.09
+  cam.y += (clY(ty) - cam.y) * 0.09
+  cam.x = clX(cam.x)
+  cam.y = clY(cam.y)
 }
 
 export function atualizarCena(novo) {
@@ -454,6 +556,7 @@ function vistaDe(j, i) {
       dir: semente % 2 ? 1 : -1,
       alt: 0, // altura do voo (negativa = no ar)
       vy: 0,
+      noFio: null, // índice do fio em que pousou (só o MEU pombo usa)
       ultimoAltEnviado: 0,
       andando: false,
       rede: null, // última posição vinda do servidor
@@ -485,10 +588,167 @@ function vistaDe(j, i) {
   return vistas.get(j.id)
 }
 
+/* ── pedestres ───────────────────────────────────────────────────────────
+   Gente cruzando a praça no nível da calçada. A simulação é 100%
+   DETERMINÍSTICA em função do relógio do servidor (seed por pedestre +
+   índice do ciclo), a mesma técnica do passeio dos pombos: todo cliente vê
+   a mesma cena sem trafegar um byte. Só a REAÇÃO ao cocô é estado local —
+   e mesmo ela nasce do broadcast de 'coco', que todos recebem.
+
+   Cada pedestre é um slot fixo (0..4 = executivo, senhora, jovem,
+   jornaleiro, corredora) com período próprio: a cada ciclo ele atravessa o
+   mundo uma vez (direção sorteada pelo hash do ciclo) e passa o resto do
+   período fora da tela. Pausas de idle são pontos fixos do trajeto. */
+
+const MARGEM_PED = 60 // nasce/some fora da borda do mundo
+const PED_LARG = 40 // grade dos mapas de pessoas.js (40x72)
+const PED_ALT = 72
+
+/* Os períodos são primos entre si de propósito (nunca sincronizam) e curtos
+   o bastante pra manter 3–5 pessoas em cena na média. */
+const PEDESTRES = [
+  // executivo: apressado, uma parada curta pra conferir o relógio
+  { vel: 55, periodo: 39000, pausas: [{ frac: 0.58, dur: 2200, poses: ['parado1', 'parado2'] }] },
+  // senhora: devagar, para duas vezes pra descansar a sacola da feira
+  {
+    vel: 20,
+    periodo: 99000,
+    pausas: [
+      { frac: 0.3, dur: 4200, poses: ['parado1', 'parado2'] },
+      { frac: 0.72, dur: 3600, poses: ['parado1', 'parado2'] },
+    ],
+  },
+  // jovem: para no meio do caminho e fica digitando no celular
+  { vel: 32, periodo: 67000, pausas: [{ frac: 0.48, dur: 6500, poses: ['digitar1', 'digitar2'] }] },
+  // jornaleiro: para na frente da banca (x~214) e varre a calçada
+  { vel: 26, periodo: 79000, pausas: [{ x: 214, dur: 7000, poses: ['varrer1', 'varrer2'] }] },
+  // corredora: trote firme, não para pra ninguém
+  { vel: 85, periodo: 24000, pausas: [] },
+]
+
+// Estado LOCAL de exibição (reação ao cocô, posição mostrada, fase do passo).
+const pedVistas = PEDESTRES.map(() => ({ ciclo: null, x: null, andou: 0, ultimoT: 0, reacaoAte: 0, sujoAte: 0 }))
+
+function hashPed(i, ciclo) {
+  let h = (i * 374761393 + ciclo * 668265263) >>> 0
+  h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0
+  return h >>> 0
+}
+
+/** Posição "de tabela" do pedestre i no instante tSrv (ms do servidor). */
+function agendaPedestre(i, tSrv) {
+  const cfg = PEDESTRES[i]
+  const ciclo = Math.floor(tSrv / cfg.periodo)
+  const dir = hashPed(i, ciclo) % 2 === 0 ? 1 : -1
+  const distTotal = LARG + MARGEM_PED * 2
+  // Pausas viram pontos na DISTÂNCIA percorrida (o x fixo do jornaleiro
+  // depende da direção; as frações não).
+  const pausas = cfg.pausas
+    .map((p) => ({
+      d: p.x !== undefined ? (dir > 0 ? p.x + MARGEM_PED : LARG + MARGEM_PED - p.x) : p.frac * distTotal,
+      dur: p.dur / 1000,
+      poses: p.poses,
+    }))
+    .sort((a, b) => a.d - b.d)
+
+  let t = (tSrv - ciclo * cfg.periodo) / 1000
+  let dist = 0
+  let pausa = null
+  for (const p of pausas) {
+    const tAteAqui = (p.d - dist) / cfg.vel
+    if (t <= tAteAqui) break
+    t -= tAteAqui
+    dist = p.d
+    if (t <= p.dur) {
+      pausa = p
+      t = 0
+      break
+    }
+    t -= p.dur
+  }
+  if (!pausa) dist += t * cfg.vel
+  if (dist >= distTotal) return { visivel: false, ciclo }
+  const x = dir > 0 ? dist - MARGEM_PED : LARG + MARGEM_PED - dist // centro do pedestre
+  return { visivel: true, ciclo, x, dir, pausa }
+}
+
+function desenharPessoas(agora) {
+  const tSrv = Date.now() + deltaServidor
+  for (let i = 0; i < PEDESTRES.length; i++) {
+    const ag = agendaPedestre(i, tSrv)
+    const pv = pedVistas[i]
+    if (pv.ciclo !== ag.ciclo) {
+      // Travessia nova: zera o estado local (a reação/sujeira ficou na outra).
+      pv.ciclo = ag.ciclo
+      pv.x = null
+      pv.andou = 0
+      pv.reacaoAte = 0
+      pv.sujoAte = 0
+    }
+    if (!ag.visivel) {
+      pv.x = null
+      continue
+    }
+    const dt = Math.min(0.064, Math.max(0, (agora - (pv.ultimoT || agora)) / 1000))
+    pv.ultimoT = agora
+    if (pv.x === null) pv.x = ag.x
+
+    let pose
+    let dirDesenho = ag.dir
+    if (agora < pv.reacaoAte) {
+      // Levou cocô: para tudo — susto, olha o ombro, punho pro céu, sacode.
+      const fase = Math.min(3, Math.floor((agora - (pv.reacaoAte - 2000)) / 500))
+      pose = `reacao${fase + 1}`
+    } else {
+      // Persegue a agenda a até 1.6x a velocidade: a pausa da reação é só
+      // minha (local), então o atraso se repõe sozinho e todo mundo
+      // reconverge pra MESMA posição de tabela.
+      const delta = ag.x - pv.x
+      const passo = PEDESTRES[i].vel * 1.6 * dt
+      const mexeu = Math.min(Math.abs(delta), passo)
+      pv.x += Math.sign(delta) * mexeu
+      pv.andou += mexeu
+      const parado = ag.pausa && Math.abs(ag.x - pv.x) < 0.5
+      if (parado) {
+        pose = ag.pausa.poses[Math.floor(agora / 520) % ag.pausa.poses.length]
+      } else {
+        // Ciclo de andar em 4 quadros no compasso da PRÓPRIA velocidade:
+        // um quadro a cada ~9px percorridos.
+        pose = `andar${(Math.floor(pv.andou / 9) % 4) + 1}`
+        if (Math.abs(delta) > 0.5) dirDesenho = delta > 0 ? 1 : -1
+      }
+    }
+
+    const img = pessoaCanvas(i, pose, agora < pv.sujoAte)
+    const px = Math.round(pv.x - PED_LARG / 2)
+    const py = LINHA_CHAO - img.height // pés na calçada, como os pombos
+    if (dirDesenho > 0) {
+      // Os mapas olham pra ESQUERDA; indo pra direita, espelha.
+      offCtx.save()
+      offCtx.translate(px + img.width, py)
+      offCtx.scale(-1, 1)
+      offCtx.drawImage(img, 0, 0)
+      offCtx.restore()
+    } else {
+      offCtx.drawImage(img, px, py)
+    }
+    // Sombra no chão, mesmo idioma da dos pombos.
+    offCtx.globalAlpha = 0.22
+    offCtx.fillStyle = '#2b2a2e'
+    offCtx.fillRect(Math.round(pv.x) - 9, LINHA_CHAO, 18, 1)
+    offCtx.globalAlpha = 1
+  }
+}
+
 function quadro(agora) {
   t = agora
   desenharCenario()
+  // Camada animada do cenário (letreiro, semáforo, varal, fumaça, pétalas…)
+  // por cima do fundo estático blitado, no espaço do mundo (escala 1 — quem
+  // amplia é a transform da câmera, junto com todo o resto).
+  desenharAnimados(offCtx, agora, 1)
   desenharManchas()
+  desenharPessoas(agora)
 
   const ordenados = [...estado.jogadores]
   const rotulos = []
@@ -498,6 +758,7 @@ function quadro(agora) {
     if (vistas.get(j.id)?.explodiu) continue // virou fragmentos
     const v = vistaDe(j, i)
     let x, y, sprite, espelhar
+    let cigarroAceso = null // true/false = desenhar overlay de cigarro (voando/andando fumando)
 
     if (!j.online) {
       x = Math.round(v.x)
@@ -511,7 +772,7 @@ function quadro(agora) {
         sprite = Math.floor(agora / 1100) % 2 ? 'dormindo2' : 'dormindo'
       }
       y = LINHA_CHAO + Math.round(v.alt)
-    } else if (trabalhando()) {
+    } else if (trabalhandoDe(j)) {
       // O foco pega o pombo ONDE ELE ESTÁ — até em cima do muro.
       x = Math.round(v.x)
       y = LINHA_CHAO + Math.round(v.alt)
@@ -566,49 +827,56 @@ function quadro(agora) {
         } else {
           sprite = 'caido' // estatelado de costas até levantar
         }
-      } else if (v.fumando) {
-        // Cigarro e café ficam ANTES do voo/passo de propósito: precisam
-        // continuar de pé mesmo andando ou voando — só a tecla desliga.
-        // Ciclo de ~3.2s: a maior parte é baforada tranquila (brasa piscando),
-        // com uma tragada funda no fim que solta a nuvem de fumaça.
-        const desde = agora - (v.fumaInicioEm || agora)
-        const ciclo = desde % 3200
-        const tragando = ciclo < 500
-        sprite = tragando ? 'fumandoTraga' : Math.floor(agora / 480) % 2 ? 'fumando2' : 'fumando'
-        // Ponta do cigarro pendurado: canto inferior do bico (x0,y12 na grade).
-        const pontaX = x + (espelhar ? SPRITE - 1 : 0)
-        const pontaY = y - 22
-        if (tragando) {
-          v.fumaFase = 'traga'
-        } else if (v.fumaFase === 'traga') {
-          v.fumaFase = 'idle'
-          emitirFumaca(pontaX, pontaY, true) // baforada funda ao soltar a fumaça
+      } else if (v.noAr) {
+        // Decolar CANCELA toda ação em loop (café incluído) — MENOS o
+        // cigarro, que sobe junto: corpo bate asa normalmente e o cigarro
+        // vira OVERLAY pendurado no bico.
+        v.dormindo = false
+        v.dancando = false
+        v.bicandoLoop = false
+        if (v.cafe) {
+          v.cafe = false
+          if (j.id === estado.meuId) aoMover?.({ x: Math.round(v.x), dir: v.dir, alt: Math.round(v.alt), acao: 'cafe-fim' })
         }
-        if (!tragando && agora - v.fumaUltimoWisp > 420) {
-          v.fumaUltimoWisp = agora
-          emitirFumaca(pontaX, pontaY, false)
+        // Batida completa: cima → meio → baixo → meio (o meio amortece).
+        sprite = ['vooCima', 'vooMeio', 'vooBaixo', 'vooMeio'][Math.floor(agora / 90) % 4]
+        if (v.fumando) {
+          const { tragando, aceso } = cicloCigarro(v, agora)
+          cigarroAceso = aceso
+          fumacaDoCigarro(v, agora, x, y, sprite, espelhar, tragando)
         }
+      } else if (v.fumando && !v.andando) {
+        // Parado fumando: poses com cigarro embutido. Ciclo de ~3.2s — a
+        // maior parte é baforada tranquila (brasa piscando), com uma tragada
+        // funda no fim que solta a nuvem de fumaça.
+        const { tragando, aceso } = cicloCigarro(v, agora)
+        sprite = tragando ? 'fumandoTraga' : aceso ? 'fumando2' : 'fumando'
+        fumacaDoCigarro(v, agora, x, y, sprite, espelhar, tragando)
       } else if (v.cafe) {
         // Ciclo de ~3.6s: maioria segurando a caneca (vapor leve); a cada
-        // 3 ciclos, em vez de um golinho rápido, reabastece com a térmica.
+        // 3 ciclos, em vez de um golinho, reabastece com a térmica. O gole
+        // alterna dois quadros — a caneca INCLINA até o bico e volta.
         const CICLO_CAFE = 3600
         const desde = agora - (v.cafeInicioEm || agora)
         const numCiclo = Math.floor(desde / CICLO_CAFE)
         const noCiclo = desde % CICLO_CAFE
         const reabastecendo = numCiclo % 3 === 2
-        const duracaoAcao = reabastecendo ? 900 : 480
+        const duracaoAcao = reabastecendo ? 900 : 720
         const emAcao = noCiclo < duracaoAcao
-        sprite = emAcao ? (reabastecendo ? 'cafeEnchendo' : 'cafeBebendo') : 'cafeSegurando'
-        const canecaX = x + (espelhar ? SPRITE - 2 : 1)
+        sprite = emAcao
+          ? reabastecendo
+            ? 'cafeEnchendo'
+            : Math.floor(noCiclo / 240) % 2
+              ? 'cafeBebendo2'
+              : 'cafeBebendo'
+          : 'cafeSegurando'
+        const canecaX = x + (espelhar ? SPRITE - 5 : 4)
         const canecaY = y - 24 // boca da caneca (y10 na grade de 34)
         if (reabastecendo && emAcao) desenharTermica(canecaX, canecaY, espelhar)
         if (!emAcao && agora - v.cafeUltimoWisp > 500) {
           v.cafeUltimoWisp = agora
           emitirFumaca(canecaX, canecaY, false) // vapor do café — mesmo sistema da fumaça
         }
-      } else if (v.noAr) {
-        // Batida completa: cima → meio → baixo → meio (o meio amortece).
-        sprite = ['vooCima', 'vooMeio', 'vooBaixo', 'vooMeio'][Math.floor(agora / 90) % 4]
       } else if (v.bicandoLoop || agora < v.bicandoAte) {
         // Bicada em 3 tempos: antecipação → golpe no chão → recuperação.
         sprite = ['bicando', 'bicando2', 'bicando3'][Math.floor(agora / 130) % 3]
@@ -624,6 +892,12 @@ function quadro(agora) {
       } else if (v.andando) {
         // Ciclo de 4 quadros: contato, sobe, cruza, sobe do outro lado.
         sprite = ['passo', 'passo2', 'passo3', 'passo4'][Math.floor(agora / 140) % 4]
+        if (v.fumando) {
+          // Andar fumando: gingado normal + cigarro de overlay no bico.
+          const { tragando, aceso } = cicloCigarro(v, agora)
+          cigarroAceso = aceso
+          fumacaDoCigarro(v, agora, x, y, sprite, espelhar, tragando)
+        }
       } else {
         sprite = Math.floor(agora / 1600) % 2 ? 'parado2' : 'parado' // idle respira
       }
@@ -640,13 +914,9 @@ function quadro(agora) {
 
     desenharSombra(v.x, v.alt)
 
-    if (v.sujeira >= SUJEIRA_MAX && agora < v.sujoAte) {
-      // Coberto até desaparecer: só os olhos (piscando) espiam por cima do montinho.
-      desenharCobertoDeCoco(x, y, piscando)
-    } else {
-      desenharSprite(sprite, x, y, j.corpo, j.crista, j.acessorio, espelhar, piscando)
-      if (agora < v.sujoAte) desenharSujeira(x, y, v.sujeira)
-    }
+    desenharSprite(sprite, x, y, j.corpo, j.crista, j.acessorio, espelhar, piscando)
+    if (cigarroAceso !== null) desenharCigarro(sprite, x, y, espelhar, cigarroAceso)
+    if (v.sujeira && agora < v.sujoAte) desenharSujeira(x, y, v.sujeira, agora)
     if (j.id === estado.meuId) miraCam = { x: x + SPRITE / 2, y: y - 10 }
     rotulos.push({ j, v, x: x + SPRITE / 2, y })
   }
@@ -655,9 +925,24 @@ function quadro(agora) {
   animarParticulas(agora)
   animarFumaca(agora)
 
-  // Câmera: zoom inteiro que COBRE o palco (sem bordas) e segue o pombo.
-  // zoomExtra só aproxima — afastar além do mínimo mostraria borda.
-  const escala = Math.max(1, Math.ceil(Math.max(cv.width / LARG, cv.height / ALT))) + zoomExtra
+  // Zoom: interpolação exponencial rumo ao alvo. Enquanto a escala muda, a
+  // câmera é corrigida pra que o ponto do mundo sob o CURSOR fique parado —
+  // é o que faz o scroll "mergulhar" onde o mouse aponta.
+  const minimo = zoomMin()
+  if (!zoomAlvo) zoomAlvo = minimo
+  zoomAlvo = Math.max(minimo, Math.min(ZOOM_MAX, zoomAlvo))
+  if (!escalaAtual) escalaAtual = zoomAlvo
+  const escalaAntes = escalaAtual
+  escalaAtual += (zoomAlvo - escalaAtual) * 0.12
+  if (Math.abs(zoomAlvo - escalaAtual) < 0.001) escalaAtual = zoomAlvo
+  escalaAtual = Math.max(minimo, Math.min(ZOOM_MAX, escalaAtual))
+  if (escalaAtual !== escalaAntes && cam.ok) {
+    const ax = mouse.dentro ? mouse.x : cv.width / 2
+    const ay = mouse.dentro ? mouse.y : cv.height / 2
+    cam.x += ax * (1 / escalaAntes - 1 / escalaAtual)
+    cam.y += ay * (1 / escalaAntes - 1 / escalaAtual)
+  }
+  const escala = escalaAtual
   const viewW = cv.width / escala
   const viewH = cv.height / escala
   atualizarCamera(viewW, viewH)
@@ -744,8 +1029,9 @@ function moverLocal(v, agora) {
   v.andando = false
   if (esq !== dir) {
     v.dir = dir ? 1 : -1
-    // No ar é mais rápido — está voando, não caminhando.
-    v.x = Math.max(2, Math.min(LARG - SPRITE - 2, v.x + v.dir * (v.alt < 0 ? 1.3 : 0.9)))
+    // No ar é mais rápido — está voando, não caminhando. No fio, equilibra:
+    // passo de chão, seguindo a catenária (a fisicaLocal cola as patas).
+    v.x = Math.max(2, Math.min(LARG - SPRITE - 2, v.x + v.dir * (v.alt < 0 && v.noFio === null ? 1.3 : 0.9)))
     v.andando = true
   }
   // Segurar W = empuxo contínuo; a gravidade da fisicaLocal faz o resto.
@@ -815,8 +1101,24 @@ function seguirRede(v) {
   else if (v.vy === 0) v.alt = altAlvo
 }
 
-/** Gravidade + empuxo + teto + superfícies: só pro MEU pombo. */
+/** Gravidade + empuxo + teto + superfícies + fios: só pro MEU pombo. */
 function fisicaLocal(v) {
+  // Qualquer empuxo ou queda solta o fio (decolar com W, furar com S).
+  if (v.vy !== 0) v.noFio = null
+
+  // Agarrado num fio: as patas seguem a catenária enquanto anda pelo vão.
+  // Passou da ponta? Não tem mais fio embaixo — cai.
+  if (v.vy === 0 && v.noFio !== null) {
+    const f = FIOS[v.noFio]
+    const patas = v.x + PE
+    if (patas >= f.x0 + 1 && patas <= f.x1 - 1) {
+      v.alt = f.y(patas) - CHAO
+      v.noAr = false
+      return
+    }
+    v.noFio = null
+  }
+
   // Pisando: cola na superfície de apoio (subindo degrau curto, se houver).
   if (v.vy === 0) {
     const apoio = apoioSob(v.x, v.alt)
@@ -833,6 +1135,24 @@ function fisicaLocal(v) {
   if (v.alt <= TETO) {
     v.alt = TETO
     v.vy = Math.max(v.vy, 0)
+  }
+  // Caindo com o W solto e chegou a menos de 6px de um fio (vindo de cima,
+  // patas dentro do vão)? POUSA nele — pombo de fio, como manda a cidade.
+  // Com o W segurado, atravessa: o jogador ainda está voando.
+  if (v.vy > 0 && !teclas.has('w') && !teclas.has('arrowup')) {
+    const patas = v.x + PE
+    for (let i = 0; i < FIOS.length; i++) {
+      const f = FIOS[i]
+      if (patas < f.x0 + 1 || patas > f.x1 - 1) continue
+      const altFio = f.y(patas) - CHAO
+      if (altAntes <= altFio && v.alt >= altFio - 6) {
+        v.alt = altFio
+        v.vy = 0
+        v.noFio = i
+        v.noAr = false
+        return
+      }
+    }
   }
   // Caindo e cruzou uma superfície que estava abaixo? Pousou nela. Subindo,
   // atravessa: toda superfície aqui é one-way, como manda o gênero.
@@ -930,55 +1250,84 @@ function desenharTermica(x, y, espelhar) {
   offCtx.drawImage(img, px, py)
 }
 
-/** Respingos brancos no pombo atingido: cabeça, costas e asa. */
-/** Respingos possíveis, do topo da cabeça até a cauda — quanto maior o
-    nível de sujeira, mais deles aparecem (até virar cobertura total). */
-const MANCHAS_SUJEIRA = [
-  [8, 4, 3, 2, '#f8f6ef'],
-  [8, 7, 3, 1, '#c9c2ae'],
-  [11, 6, 2, 2, '#f8f6ef'],
-  [17, 13, 3, 2, '#f8f6ef'],
-  [18, 15, 2, 1, '#c9c2ae'],
-  [7, 17, 2, 2, '#f8f6ef'],
-  [5, 13, 2, 2, '#f8f6ef'],
-  [22, 11, 3, 2, '#f8f6ef'],
-  [4, 8, 2, 2, '#f8f6ef'],
-  [13, 20, 3, 2, '#f8f6ef'],
-  [27, 12, 3, 2, '#f8f6ef'],
-  [8, 23, 3, 2, '#f8f6ef'],
+/* Sujeira progressiva, ancorada na anatomia da grade 36x34 do 'parado':
+   cada nível ACUMULA os anteriores. 1-2 = respingos frescos; 3-4 = placas
+   escorrendo na cabeça/asa/peito; 5 = emplastrado, com escorrido descendo
+   a testa e mosquinha orbitando. Marcas: [dx, dy, larg, alt, cor]. */
+const SUJEIRA_NIVEIS = [
+  [
+    // 1 — respingos: topo da cabeça e dorso
+    [7, 3, 3, 2, '#f8f6ef'],
+    [8, 5, 1, 1, '#c9c2ae'],
+    [14, 16, 3, 2, '#f8f6ef'],
+  ],
+  [
+    // 2 — mais respingos: nuca, asa e rabo
+    [11, 5, 2, 2, '#f8f6ef'],
+    [18, 20, 3, 2, '#f8f6ef'],
+    [19, 22, 1, 1, '#c9c2ae'],
+    [27, 11, 3, 2, '#f8f6ef'],
+  ],
+  [
+    // 3 — placas: cabeça coberta, escorrido descendo a nuca, asa marcada
+    [5, 2, 8, 3, '#f8f6ef'],
+    [12, 4, 2, 2, '#f8f6ef'],
+    [13, 6, 1, 4, '#e8e4d4'],
+    [15, 17, 6, 3, '#f8f6ef'],
+    [17, 20, 1, 3, '#c9c2ae'],
+  ],
+  [
+    // 4 — placas grandes no peito e na asa, escorrendo
+    [8, 22, 4, 3, '#f8f6ef'],
+    [9, 25, 1, 3, '#c9c2ae'],
+    [21, 14, 6, 3, '#f8f6ef'],
+    [23, 17, 1, 4, '#e8e4d4'],
+    [30, 13, 4, 2, '#f8f6ef'],
+  ],
+  [
+    // 5 — emplastrado: capacete inteiro + escorrido na testa, sobre a cara
+    [4, 0, 11, 3, '#f8f6ef'],
+    [4, 3, 12, 3, '#f8f6ef'],
+    [6, 7, 2, 4, '#f8f6ef'],
+    [6, 11, 1, 2, '#e8e4d4'],
+    [16, 12, 12, 4, '#f8f6ef'],
+    [10, 19, 8, 3, '#f8f6ef'],
+    [12, 26, 3, 2, '#f8f6ef'],
+  ],
 ]
 
-function desenharSujeira(x, y, nivel) {
+function desenharSujeira(x, y, nivel, agora) {
   const px = Math.round(x)
-  const py = Math.round(y) - 33 // topo aproximado do sprite (grade de 34)
-  const n = Math.min(Math.max(nivel || 1, 1), SUJEIRA_MAX - 1)
-  const qtd = Math.min(2 + n * 2, MANCHAS_SUJEIRA.length)
-  for (let i = 0; i < qtd; i++) {
-    const [dx, dy, w, h, cor] = MANCHAS_SUJEIRA[i]
-    offCtx.fillStyle = cor
-    offCtx.fillRect(px + dx, py + dy, w, h)
+  const py = Math.round(y) - 34 // topo da grade do sprite
+  const n = Math.min(Math.max(nivel || 1, 1), SUJEIRA_NIVEIS.length)
+  for (let i = 0; i < n; i++)
+    for (const [dx, dy, w, h, cor] of SUJEIRA_NIVEIS[i]) {
+      offCtx.fillStyle = cor
+      offCtx.fillRect(px + dx, py + dy, w, h)
+    }
+  if (n >= SUJEIRA_MAX) {
+    // Mosquinha de 1px orbitando o pombo emplastrado, em 2 quadros.
+    const f = Math.floor((agora || 0) / 220) % 2
+    offCtx.fillStyle = PALETA.K
+    offCtx.fillRect(px + (f ? 2 : 17), py + (f ? 7 : 1), 1, 1)
   }
 }
 
-/** Nível máximo de sujeira: o pombo some debaixo de um montinho — só os
-    olhos escapam por cima, piscando de vez em quando. */
-function desenharCobertoDeCoco(x, y, piscando) {
-  const px = Math.round(x)
-  const py = Math.round(y) - 1 // base do montinho na linha dos pés
-  const larg = 28
-  const altura = 21
-  offCtx.fillStyle = '#b9b3a0'
-  offCtx.fillRect(px + SPRITE / 2 - Math.ceil(larg / 2), py, larg + 1, 1)
-  for (let ry = 0; ry < altura; ry++) {
-    const wRow = Math.max(2, Math.round(larg - (ry * larg) / altura))
-    offCtx.fillStyle = ry === altura - 1 ? '#f8f6ef' : ry % 2 ? '#e8e4d4' : '#efece0'
-    offCtx.fillRect(px + SPRITE / 2 - Math.floor(wRow / 2), py - 1 - ry, wRow, 1)
+/** MEU cocô acertou um pedestre: estrelinha de impacto + aviso local. */
+function acertoEmPessoa(pd, k, nx, ny, deId, agora) {
+  pd.reacaoAte = agora + 2000
+  pd.sujoAte = agora + 10000
+  for (let q = 0; q < 6; q++) {
+    particulas.push({
+      x: nx + (Math.random() - 0.5) * 4,
+      y: ny + (Math.random() - 0.5) * 3,
+      vx: (Math.random() - 0.5) * 2.2,
+      vy: -Math.random() * 1.4 - 0.2,
+      cor: ['#ffffff', '#ffe066', '#f8f6ef'][q % 3],
+      ate: agora + 340,
+    })
   }
-  if (!piscando) {
-    offCtx.fillStyle = PALETA.K
-    offCtx.fillRect(px + SPRITE / 2 - 8, py - altura + 3, 3, 3)
-    offCtx.fillRect(px + SPRITE / 2 + 5, py - altura + 3, 3, 3)
-  }
+  if (deId === estado.meuId) aoAcertarPessoa?.(PESSOAS[k].nome)
 }
 
 function animarPelotas(agora) {
@@ -987,6 +1336,26 @@ function animarPelotas(agora) {
     p.x += p.vx || 0
     p.y += p.vy
     p.vy += 0.12
+    // Acerto em PEDESTRE: testa a trajetória NOMINAL (fechada no tempo, sem
+    // jitter e sem depender do frame rate) contra a cabeça (~70px) de cada
+    // pessoa em cena — determinístico, todo cliente vê o mesmo tabefe. Só
+    // pega quem está ABAIXO da origem: cocô de pombo no chão não sobe.
+    if (!p.acertouPessoa && p.nasceu !== undefined) {
+      const s = (agora - p.nasceu) / 16.7 // "quadros" de 60Hz decorridos
+      const nx = p.x0 - p.dirCoco * 0.25 * s
+      const ny = p.y0 + 0.6 * s + 0.06 * s * s
+      if (ny >= LINHA_CHAO - PED_ALT && ny <= LINHA_CHAO - PED_ALT + 16) {
+        for (let k = 0; k < pedVistas.length; k++) {
+          const pd = pedVistas[k]
+          if (pd.x === null || agora < pd.reacaoAte) continue
+          if (Math.abs(nx - pd.x) > 11) continue
+          p.acertouPessoa = true
+          acertoEmPessoa(pd, k, nx, ny, p.deId, agora)
+          break
+        }
+      }
+      if (ny > LINHA_CHAO - PED_ALT + 16) p.acertouPessoa = true // passou da faixa: não testa mais
+    }
     // Na altura da cabeça de quem está embaixo, a sujeira "pega" — e ACUMULA:
     // cada acerto novo sobe um nível e estende a duração. No nível máximo o
     // pombo fica completamente coberto (ver quadro()).
@@ -1047,9 +1416,11 @@ function animarPelotas(agora) {
 }
 
 function desenharRotulo({ j, v, x, y }, escala, agora) {
-  // Converte do espaço da cena pro da tela (desconta a câmera).
-  const cx = (x - cam.x) * escala
-  const base = (y - SPRITE - cam.y) * escala
+  // Converte do espaço da cena pro da tela — descontando a MESMA translação
+  // arredondada que a transform do palco usa, senão o rótulo tremeria
+  // 1px fora do pombo em escala fracionária.
+  const cx = x * escala - Math.round(cam.x * escala)
+  const base = (y - SPRITE) * escala - Math.round(cam.y * escala)
   if (cx < -80 || cx > cv.width + 80) return // fora da janela
 
   ctx.font = `${Math.max(10, Math.round(3.2 * escala))}px ui-monospace, monospace`

@@ -174,8 +174,22 @@ header {
 }
 .pill.pausa { background: var(--pausa); color: #14301a; }
 .pill.parado { background: #55556a; color: #d8d8e4; }
+/* Sprint solo: mesmo pill, com um "aro" pra avisar que o relógio é pessoal. */
+.pill.solo { box-shadow: 0 0 0 2px #f2f0e84d; }
+
+/* Seletor sala/solo: discreto, colado no rótulo da fase. */
+.modo-timer { display: flex; align-self: center; }
+.modo-timer button {
+  font-size: 9px; padding: 4px 9px; min-width: 0;
+  text-transform: uppercase; letter-spacing: .06em;
+  background: #ffffff10; color: #8686a0;
+}
+.modo-timer button[aria-pressed='true'] { background: #ffffff2e; color: var(--papel); }
 
 #btnPlay { min-width: 42px; }
+/* Botão do PiP: verde enquanto a janelinha flutuante está aberta. */
+#btnPip { min-width: 42px; }
+#btnPip.ativo { background: var(--pausa); }
 #btnSair:hover { background: var(--foco); filter: none; }
 .ajustes { display: flex; gap: 12px; align-items: center; }
 .ajustes label {

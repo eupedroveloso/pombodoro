@@ -84,6 +84,12 @@
     <div class="fase">
       <span id="rotuloFase" class="pill">—</span>
       <small id="proxima"></small>
+      <!-- Seletor do modo do cronômetro: sala (compartilhado, com bônus de
+           bando) ou solo (pessoal, 10 migalhas secas). -->
+      <div class="modo-timer" role="group" aria-label="Modo do cronômetro">
+        <button type="button" id="btnModoSala" aria-pressed="true" title="Sprint da sala: relógio compartilhado, com bônus de bando">sala</button>
+        <button type="button" id="btnModoSolo" aria-pressed="false" title="Sprint solo: relógio só seu, 10 migalhas por sprint (sem bônus)">solo</button>
+      </div>
     </div>
     <div class="relogio-bloco">
       <strong id="relogio" class="relogio-grande">--:--</strong>
@@ -92,6 +98,7 @@
     <div class="acoes">
       <button id="btnPlay" title="Continuar"><i data-icone="play" data-tam="24"></i></button>
       <button id="btnReset" class="ghost" title="Zerar">↺</button>
+      <button id="btnPip" class="ghost" title="Cronômetro flutuante (Picture-in-Picture) — abra uma vez e ela te acompanha quando você sair da aba"><i data-icone="relogio" data-tam="28"></i></button>
       <div class="ajustes">
         <label>foco <input id="slFoco" type="range" min="1" max="60" step="1" value="30"> <b id="vFoco">30m</b></label>
         <label>pausa <input id="slPausa" type="range" min="1" max="30" step="1" value="6"> <b id="vPausa">6m</b></label>

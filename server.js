@@ -28,7 +28,7 @@ if (!process.env.SESSION_SECRET) console.warn('[pombodoro] SESSION_SECRET ausent
 
 // Bump a cada mudança de física/protocolo: clientes com versão diferente
 // recarregam sozinhos — acaba o pombo fantasma de aba desatualizada.
-const VERSAO_APP = 18
+const VERSAO_APP = 20
 
 /* ─────────────────────────── regras da praça ─────────────────────────── */
 
@@ -52,6 +52,18 @@ function chaveDoDia(nowMs = Date.now()) {
 /** O timer é estado da sala: qualquer pombo presente pode controlar. */
 function novoTimer(focusSec = FOCO_PADRAO, breakSec = PAUSA_PADRAO) {
   return { fase: 'foco', restante: focusSec, rodando: false, focusSec, breakSec }
+}
+
+/* ── sprint solo ──
+   Cada jogador pode trocar o relógio da sala por um relógio PESSOAL, com a
+   mesma autoridade no servidor e o mesmo padrão de tráfego: o cliente
+   extrapola sobre o relógio do servidor e só recebe emissão nas viradas
+   (evento 'estadoSolo', direcionado só ao socket do dono). Pontua 10
+   migalhas por sprint completo, SEM bônus de bando — o bônus é o incentivo
+   do modo grupo. Vive só em memória (não persiste no banco): quem cair por
+   mais de 2min perde o sprint de qualquer jeito. */
+function novoSolo(focusSec, breakSec) {
+  return { ativo: true, fase: 'foco', restante: focusSec, rodando: false, focusSec, breakSec, focoValido: false }
 }
 
 /** Rádio: fila coletiva de YouTube. O servidor é a autoridade de posição. */
@@ -303,6 +315,11 @@ function jogadoresVisiveis(sala) {
       sprintsHoje: j.sprintsHoje,
       online: j.online,
       focoValido: j.focoValido,
+      // Modo solo: os OUTROS clientes precisam saber se este pombo está
+      // sentado no próprio sprint (ou passeando na própria pausa) pra
+      // desenhá-lo certo — só o flag viaja, nunca o relógio dele.
+      soloAtivo: Boolean(j.solo?.ativo),
+      soloFoco: Boolean(j.solo?.ativo && j.solo.fase === 'foco' && j.solo.rodando),
     }))
     .sort((a, b) => b.migalhas - a.migalhas || a.nome.localeCompare(b.nome))
 }
@@ -333,6 +350,32 @@ function estado(sala) {
 }
 
 const emFoco = (sala) => sala.timer.fase === 'foco' && sala.timer.rodando
+
+/** Foco que VALE pra este jogador: o solo, se ativo; senão, o da sala.
+    Decide se o pombo dele senta e se os controles de passeio travam.
+    ATENÇÃO: o mural NÃO usa isto — mural trancado é regra da SALA, não do
+    indivíduo (a conversa é coletiva; um sprint pessoal não abre exceção). */
+const emFocoPessoal = (sala, j) => (j.solo?.ativo ? j.solo.fase === 'foco' && j.solo.rodando : emFoco(sala))
+
+/** Retrato do sprint solo pro dono — mesmo padrão do estado() da sala:
+    vai o relógio do servidor junto e o cliente conta sozinho. */
+function estadoSoloDe(j) {
+  const s = j.solo
+  if (!s?.ativo) return { ativo: false, agoraServidor: Date.now() }
+  return {
+    ativo: true,
+    agoraServidor: Date.now(),
+    fase: s.fase,
+    restante: s.restante,
+    rodando: s.rodando,
+    focusSec: s.focusSec,
+    breakSec: s.breakSec,
+  }
+}
+
+function enviarSolo(j) {
+  if (j.socketId) io.to(j.socketId).emit('estadoSolo', estadoSoloDe(j))
+}
 
 /* ─────────────────────────── sessão ─────────────────────────── */
 /* Cookie httpOnly com "id.validade.assinatura" — HMAC caseiro, sem
@@ -505,6 +548,7 @@ io.on('connection', (socket) => {
         saiu: false,
         tarefas: [],
         tarefaAtual: null,
+        solo: null, // sprint pessoal (só memória; ver novoSolo)
       }
       sala.jogadores.set(id, jogador)
       anunciar(sala, `${nome} pousou na praça`)
@@ -520,6 +564,7 @@ io.on('connection', (socket) => {
     salvar()
     io.to(codigo).emit('estado', estado(sala))
     enviarTarefas(jogador)
+    enviarSolo(jogador) // o sprint pessoal sobrevive à reconexão — devolve o retrato
   })
 
   /* ── controles do cronômetro ── */
@@ -573,6 +618,71 @@ io.on('connection', (socket) => {
     salvar()
     io.to(sala.codigo).emit('estado', estado(sala))
     for (const j of sala.jogadores.values()) enviarTarefas(j)
+  })
+
+  /* ── sprint solo ──
+     Espelho pessoal dos controles da sala: play/pause/reset/config, mais
+     ativar/desativar pra trocar de modo. Cada ação responde só ao dono
+     (estadoSolo) e rebroadcasta o estado da sala porque soloAtivo/soloFoco
+     mudam o desenho do pombo pra todo mundo. */
+  socket.on('solo', (payload = {}) => {
+    if (!sala || !jogador) return
+    const acao = String(payload.acao || '')
+
+    if (acao === 'ativar') {
+      if (!jogador.solo?.ativo) {
+        // Durações herdadas do solo anterior (se houve) ou da sala.
+        const focusSec = Math.min(60 * 60, jogador.solo?.focusSec ?? sala.timer.focusSec)
+        const breakSec = Math.min(30 * 60, jogador.solo?.breakSec ?? sala.timer.breakSec)
+        jogador.solo = novoSolo(focusSec, breakSec)
+        // Trocar pro solo é sair do sprint da sala: o foco coletivo em
+        // andamento deixa de contar pra este pombo (sem dupla pontuação).
+        jogador.focoValido = false
+      }
+    } else if (acao === 'desativar') {
+      if (jogador.solo?.ativo) {
+        jogador.solo.ativo = false
+        jogador.solo.rodando = false
+        jogador.solo.focoValido = false
+        // Voltou pra sala com sprint rolando? Pontua só no próximo — mesma
+        // regra de quem entra no meio (focoValido segue false até abrirSprint).
+      }
+    } else {
+      const s = jogador.solo
+      if (!s?.ativo) return
+      if (acao === 'play' && !s.rodando) {
+        s.rodando = true
+        // Sprint pessoal começando do zero: vale.
+        if (s.fase === 'foco' && s.restante === s.focusSec) s.focoValido = true
+      } else if (acao === 'pause' && s.rodando) {
+        s.rodando = false
+      } else if (acao === 'reset') {
+        s.fase = 'foco'
+        s.restante = s.focusSec
+        s.rodando = false
+        s.focoValido = false // abandono = 0
+        liberarTarefaAtual(jogador, false)
+        enviarTarefas(jogador)
+      } else if (acao === 'config') {
+        // Mesmos limites dos sliders da sala: foco 1–60min, pausa 1–30min.
+        const foco = Number(payload.focusMin)
+        const pausa = Number(payload.breakMin)
+        if (Number.isFinite(foco)) s.focusSec = Math.round(Math.max(1, Math.min(60, foco)) * 60)
+        if (Number.isFinite(pausa)) s.breakSec = Math.round(Math.max(1, Math.min(30, pausa)) * 60)
+        // Mudou a duração: o sprint pessoal em andamento não vale mais.
+        s.fase = 'foco'
+        s.restante = s.focusSec
+        s.rodando = false
+        s.focoValido = false
+        liberarTarefaAtual(jogador, false)
+        enviarTarefas(jogador)
+      } else {
+        return
+      }
+    }
+
+    enviarSolo(jogador)
+    io.to(sala.codigo).emit('estado', estado(sala)) // o pombo sentou/levantou pros outros
   })
 
   /* ── presença e conversa ── */
@@ -667,7 +777,9 @@ io.on('connection', (socket) => {
 
   socket.on('mover', (payload = {}) => {
     if (!sala || !jogador) return
-    if (emFoco(sala)) return // trabalhando não se anda nem se soca
+    // Trabalhando não se anda nem se soca — mas "trabalhando" é pessoal:
+    // quem está na pausa do próprio sprint solo passeia mesmo com a sala em foco.
+    if (emFocoPessoal(sala, jogador)) return
 
     const acao = ['anda', 'bica', 'bica2', 'pula', 'soco', 'coco', 'danca', 'dorme', 'fuma', 'fuma-fim', 'cafe', 'cafe-fim'].includes(
       payload.acao
@@ -675,10 +787,12 @@ io.on('connection', (socket) => {
       ? payload.acao
       : 'anda'
     const x = Number(payload.x)
-    if (Number.isFinite(x)) jogador.posX = Math.max(0, Math.min(640, x))
+    // Limites do mundo NOVO do cenario.js: 1280 de largura, teto de voo em
+    // -364 (com folga) — o clamp aqui é só anti-lixo, a física é do cliente.
+    if (Number.isFinite(x)) jogador.posX = Math.max(0, Math.min(1280, x))
     jogador.posDir = payload.dir === 1 ? 1 : -1
     const alt = Number(payload.alt)
-    jogador.posAlt = Number.isFinite(alt) ? Math.max(-260, Math.min(0, alt)) : 0
+    jogador.posAlt = Number.isFinite(alt) ? Math.max(-400, Math.min(0, alt)) : 0
 
     if (acao === 'coco') {
       if (!Number.isFinite(jogador.posX)) return
@@ -718,7 +832,7 @@ io.on('connection', (socket) => {
         if (outro === jogador || outro.saiu || !Number.isFinite(outro.posX)) continue
         const dx = outro.posX - jogador.posX
         if (Math.abs(dx) > ALCANCE_SOCO) continue
-        outro.posX = Math.max(0, Math.min(640, outro.posX + (dx >= 0 ? 1 : -1) * EMPURRAO_SOCO))
+        outro.posX = Math.max(0, Math.min(1280, outro.posX + (dx >= 0 ? 1 : -1) * EMPURRAO_SOCO))
         vitimas.push({ id: outro.id, x: outro.posX })
       }
       io.to(sala.codigo).emit('soco', { id: jogador.id, x: jogador.posX, dir: jogador.posDir, vitimas })
@@ -825,6 +939,13 @@ io.on('connection', (socket) => {
     }
     jogador.saiu = true
     jogador.focoValido = false
+    if (jogador.solo?.ativo) {
+      // Saiu pela porta no meio do sprint solo: abandono, igual ao da sala.
+      jogador.solo.rodando = false
+      jogador.solo.focoValido = false
+      jogador.solo.fase = 'foco'
+      jogador.solo.restante = jogador.solo.focusSec
+    }
     liberarTarefaAtual(jogador, false) // saiu no meio do ciclo — sem cobrar confirmação
     // Saída dramática: explode onde estava e a mancha fica na praça.
     const ondeX = Number.isFinite(jogador.posX) ? jogador.posX : 300
@@ -868,7 +989,32 @@ setInterval(() => {
 
   for (const sala of salas.values()) {
     for (const j of sala.jogadores.values()) {
-      if (!j.online && agora - j.offlineDesde > TOLERANCIA_QUEDA_SEC * 1000) j.focoValido = false
+      if (!j.online && agora - j.offlineDesde > TOLERANCIA_QUEDA_SEC * 1000) {
+        j.focoValido = false
+        // Anti-trapaça vale pro solo também: caiu >2min, o sprint pessoal
+        // pausa e é invalidado — quando voltar, dá play num sprint novo.
+        if (j.solo?.ativo && j.solo.rodando) {
+          j.solo.rodando = false
+          j.solo.focoValido = false
+        }
+      }
+
+      // Relógio pessoal: bate no mesmo segundo da sala, mas cada um no seu.
+      const s = j.solo
+      if (!s?.ativo || !s.rodando || j.saiu) continue
+      s.restante -= 1
+      if (s.restante > 0) continue
+      if (s.fase === 'foco') {
+        fecharSprintSolo(sala, j)
+        s.fase = 'pausa'
+        s.restante = s.breakSec
+      } else {
+        s.fase = 'foco'
+        s.restante = s.focusSec
+        s.focoValido = j.online // a pausa virou foco sozinha: o dono presente entra valendo
+      }
+      enviarSolo(j) // emissão só na virada, e só pro dono
+      io.to(sala.codigo).emit('estado', estado(sala)) // o pombo sentou/levantou
     }
 
     const t = sala.timer
@@ -893,8 +1039,53 @@ setInterval(() => {
 
 function abrirSprint(sala) {
   for (const j of sala.jogadores.values()) {
-    j.focoValido = j.online
+    // Quem está no próprio sprint solo não participa do sprint da sala.
+    j.focoValido = j.online && !j.solo?.ativo
   }
+}
+
+/** Crédito de um sprint fechado — comum aos dois modos. A única diferença
+    é o `bando`: sempre 0 no solo, porque o bônus é o incentivo do grupo. */
+function creditar(j, bando, solo = false) {
+  if (j.dia !== chaveDoDia()) {
+    j.dia = chaveDoDia()
+    j.sprintsHoje = 0
+  }
+  const ganho = BASE_MIGALHAS + BONUS_POR_AMIGO * bando
+  j.migalhas += ganho
+  j.sprints += 1
+  j.sprintsHoje += 1
+  if (j.socketId) {
+    io.to(j.socketId).emit('creditado', {
+      ganho,
+      base: BASE_MIGALHAS,
+      bando,
+      solo,
+      total: j.migalhas,
+      restamHoje: MAX_SPRINTS_DIA - j.sprintsHoje,
+    })
+  }
+  return ganho
+}
+
+/** Fim do foco de um sprint SOLO: 10 migalhas secas, sem bando, mesmo teto
+    diário de 8 sprints (compartilhado com o modo sala). */
+function fecharSprintSolo(sala, j) {
+  const completou = j.solo.focoValido && j.online
+  j.solo.focoValido = false
+  // Mesmo rito do fim de foco da sala: a tarefa marcada pede confirmação.
+  liberarTarefaAtual(j, true)
+  enviarTarefas(j)
+  if (!completou) return
+  if (j.dia !== chaveDoDia()) {
+    j.dia = chaveDoDia()
+    j.sprintsHoje = 0
+  }
+  if (j.sprintsHoje < MAX_SPRINTS_DIA) {
+    const ganho = creditar(j, 0, true)
+    anunciar(sala, `${j.nome} fechou um sprint solo · +${ganho} 🍞`)
+  }
+  salvar()
 }
 
 function fecharSprint(sala) {
@@ -906,23 +1097,8 @@ function fecharSprint(sala) {
   const premiados = concluiram.filter((j) => j.sprintsHoje < MAX_SPRINTS_DIA)
 
   for (const j of premiados) {
-    if (j.dia !== chaveDoDia()) {
-      j.dia = chaveDoDia()
-      j.sprintsHoje = 0
-    }
-    j.migalhas += ganho
-    j.sprints += 1
-    j.sprintsHoje += 1
+    creditar(j, bando)
     j.focoValido = false
-    if (j.socketId) {
-      io.to(j.socketId).emit('creditado', {
-        ganho,
-        base: BASE_MIGALHAS,
-        bando,
-        total: j.migalhas,
-        restamHoje: MAX_SPRINTS_DIA - j.sprintsHoje,
-      })
-    }
   }
 
   for (const j of sala.jogadores.values()) {

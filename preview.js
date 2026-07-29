@@ -1,17 +1,16 @@
-/* Renderiza a praça num PNG sem abrir o navegador.
-   Serve pra conferir a arte e o enquadramento rápido.
-   uso: node preview.js [saida.png]                                        */
+/* Renderiza a PRAÇA REAL (cenario.js, 1280x480) num PNG sem abrir o
+   navegador — o mesmo pintarCena/desenharAnimados que o jogo usa, mais
+   pombos de sprites.js e pedestres de pessoas.js por cima. Serve pra
+   conferir arte, enquadramento e os poleiros do mundo novo.
+   uso: node preview.js [saida.png] [pausa]                                 */
 
 import { deflateSync } from 'node:zlib'
 import { writeFileSync } from 'node:fs'
-import { SPRITES, CENARIO, coresDe } from './public/sprites.js'
+import { SPRITES, coresDe } from './public/sprites.js'
+import { pintarCena, desenharAnimados, LARG, ALT, CHAO, FIOS } from './public/cenario.js'
+import { PESSOAS, PALETA_PESSOAS } from './public/pessoas.js'
 
-const LARG = 330
-const ALT = 96
-const ESCALA = 5
-const LINHA_CHAO = 74
-const ESTACAO = 52
-const PASSO_MAX = 56
+const ESCALA = 2
 
 /* ─── framebuffer ─────────────────────────────────────────── */
 
@@ -21,15 +20,18 @@ function hex(c) {
   return [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)]
 }
 
+let alfa = 1
+
 function px(x, y, cor) {
   x = Math.round(x)
   y = Math.round(y)
   if (x < 0 || y < 0 || x >= LARG || y >= ALT) return
   const i = (y * LARG + x) * 4
   const [r, g, b] = hex(cor)
-  buf[i] = r
-  buf[i + 1] = g
-  buf[i + 2] = b
+  // O cenário usa a(0.12) pra sombras longas — mistura com o que já está lá.
+  buf[i] = Math.round(buf[i] * (1 - alfa) + r * alfa)
+  buf[i + 1] = Math.round(buf[i + 1] * (1 - alfa) + g * alfa)
+  buf[i + 2] = Math.round(buf[i + 2] * (1 - alfa) + b * alfa)
   buf[i + 3] = 255
 }
 
@@ -37,14 +39,24 @@ function retangulo(x, y, w, h, cor) {
   for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) px(x + i, y + j, cor)
 }
 
-function elipse(cx, cy, rx, ry, cor) {
-  for (let y = Math.floor(cy - ry); y <= cy + ry; y++)
-    for (let x = Math.floor(cx - rx); x <= cx + rx; x++) {
-      const dx = (x - cx) / rx
-      const dy = (y - cy) / ry
-      if (dx * dx + dy * dy <= 1) px(x, y, cor)
-    }
+/* ─── cenário: estático + camada animada num instante fixo ── */
+
+pintarCena({
+  r: (x, y, w, h, cor) => retangulo(x, y, w, h, cor),
+  a: (v) => (alfa = v),
+})
+alfa = 1
+
+// ctx "de mentira": desenharAnimados só usa fillStyle/fillRect.
+const ctxFake = {
+  fillStyle: '#000',
+  fillRect(x, y, w, h) {
+    retangulo(x, y, w, h, this.fillStyle)
+  },
 }
+desenharAnimados(ctxFake, 1234, 1)
+
+/* ─── sprites ─────────────────────────────────────────────── */
 
 function sprite(nome, x, y, iCorpo = 0, iCrista = 0, espelhar = false) {
   const mapa = SPRITES[nome]
@@ -58,11 +70,18 @@ function sprite(nome, x, y, iCorpo = 0, iCrista = 0, espelhar = false) {
     }
 }
 
-/* ─── a cena ──────────────────────────────────────────────── */
+function pessoa(iPessoa, pose, x, espelhar = false) {
+  const mapa = PESSOAS[iPessoa].mapas[pose] || PESSOAS[iPessoa].mapas.parado1
+  const larg = mapa[0].length
+  const topo = CHAO - mapa.length
+  for (let j = 0; j < mapa.length; j++)
+    for (let i = 0; i < mapa[j].length; i++) {
+      const cor = PALETA_PESSOAS[mapa[j][i]]
+      if (cor) px(x + (espelhar ? larg - 1 - i : i), topo + j, cor)
+    }
+}
 
-retangulo(0, 0, LARG, ALT, CENARIO.ceu)
-elipse(LARG / 2, LINHA_CHAO + 1, LARG * 0.44, 9, CENARIO.chao)
-elipse(LARG / 2, LINHA_CHAO - 1, LARG * 0.41, 6, CENARIO.chaoLuz)
+/* ─── a cena ──────────────────────────────────────────────── */
 
 const PRACA = [
   { nome: 'Pedro', corpo: 0, crista: 0 },
@@ -76,20 +95,27 @@ const PRACA = [
 const modo = process.argv[3] === 'pausa' ? 'pausa' : 'foco'
 
 if (modo === 'foco') {
-  const n = PRACA.length
-  const passo = Math.min(PASSO_MAX, (LARG - ESTACAO - 8) / Math.max(n - 1, 1))
-  const largura = (n - 1) * passo + ESTACAO
+  // Todo mundo sentado trabalhando, espalhado pelo calçadão.
   PRACA.forEach((j, i) => {
-    const x0 = (LARG - largura) / 2 + i * passo
-    // Quadros de digitação alternados, pra ver os três de uma vez.
-    sprite(['sentado', 'sentado2', 'sentado3'][i % 3], x0 + 8, LINHA_CHAO, j.corpo, j.crista)
-    sprite(i % 2 ? 'notebook2' : 'notebook', x0 - 8, LINHA_CHAO + 1)
+    const x0 = 120 + i * 190
+    sprite(['sentado', 'sentado2', 'sentado3'][i % 3], x0 + 8, CHAO, j.corpo, j.crista)
+    sprite(i % 2 ? 'notebook2' : 'notebook', x0 - 8, CHAO + 1)
   })
 } else {
-  const poses = ['parado', 'soco', 'tonto', 'vooCima', 'vooBaixo', 'bicando2']
-  PRACA.forEach((j, i) => {
-    sprite(poses[i], 4 + i * 54, LINHA_CHAO + (poses[i].startsWith('voo') ? -14 : 0), j.corpo, j.crista, false)
+  // Passeio: poses variadas no chão + UM POMBO POUSADO NO FIO (patas na
+  // catenária de FIOS[0]) + os cinco pedestres em cena.
+  const poses = ['parado', 'soco', 'vooCima', 'vooBaixo', 'bicando2']
+  poses.forEach((p2, i) => {
+    sprite(p2, 240 + i * 170, CHAO + (p2.startsWith('voo') ? -120 : 0), PRACA[i].corpo, PRACA[i].crista)
   })
+  const xFio = 300 // dentro do vão 1 (150..490)
+  sprite('parado', xFio, FIOS[0].y(xFio + 14), PRACA[5].corpo, PRACA[5].crista)
+
+  pessoa(3, 'varrer1', 194) // jornaleiro varrendo na frente da banca
+  pessoa(1, 'andar2', 420, true) // senhora indo pra direita
+  pessoa(2, 'digitar1', 600) // jovem digitando
+  pessoa(0, 'andar1', 820, true) // executivo apressado
+  pessoa(4, 'andar3', 1080) // corredora
 }
 
 /* ─── escala + PNG ────────────────────────────────────────── */
