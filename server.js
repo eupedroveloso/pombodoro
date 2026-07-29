@@ -180,6 +180,28 @@ async function buscarTexto(url) {
   return resp.text()
 }
 
+/* Só entra na fila o que TOCA na fila.
+   O oEmbed reprova vídeo morto ou privado, mas responde 200 numerinho pra
+   quem o dono proibiu de tocar fora do YouTube — e aí a música só revelava o
+   problema no meio da praça, sendo pulada. Quem sabe da proibição é o campo
+   playableInEmbed da própria página do vídeo.
+   Na dúvida, LIBERA: se a consulta falhar (YouTube fora do ar, marcação
+   mudou), é melhor deixar entrar uma música que talvez não toque do que
+   barrar uma que tocava. Se ela realmente não tocar, o decidirPulo cuida com
+   a mensagem certa.
+   Vale só pro vídeo avulso: numa playlist de 25 isso viraria 25 raspagens em
+   série, lento e bom jeito de tomar bloqueio do YouTube — lá o oEmbed segue
+   sozinho e o resumo da importação avisa quantas ficaram de fora. */
+async function embedLiberado(id) {
+  try {
+    const html = await buscarTexto(`https://www.youtube.com/watch?v=${id}`)
+    const m = html.match(/"playableInEmbed":(true|false)/)
+    return m ? m[1] === 'true' : true
+  } catch {
+    return true
+  }
+}
+
 /** Caminho principal: feed RSS público da playlist (XML estável, até ~15 vídeos). */
 async function idsDoFeed(listId) {
   const xml = await buscarTexto(`https://www.youtube.com/feeds/videos.xml?playlist_id=${listId}`)
@@ -1122,7 +1144,7 @@ io.on('connection', (socket) => {
       // está na fila e nem gasta a consulta ao YouTube.
       const jaNaFila = r.fila.find((f) => f.videoId === id)
       if (jaNaFila) return socket.emit('recusado', `"${jaNaFila.titulo}" já está na fila 📻`)
-      // Valida ANTES de aceitar: vídeo morto/embed bloqueado nem entra.
+      // Valida ANTES de aceitar: vídeo morto nem entra.
       // O oEmbed também traz a miniatura de graça, sem precisar de chave de API
       // (duração não vem por aqui — a Data API exigiria uma chave que não temos).
       let titulo, imagem
@@ -1137,6 +1159,15 @@ io.on('connection', (socket) => {
         imagem = dados.thumbnail_url
       } catch {
         return socket.emit('recusado', 'Esse vídeo não rolou — pode não existir ou não tocar fora do YouTube')
+      }
+      // Segunda peneira: o oEmbed responde 200 até pra vídeo que o dono
+      // PROIBIU tocar fora do YouTube. Sem esta checagem a música entrava na
+      // fila e só dava as caras na hora de tocar — pulada na cara de todos.
+      if (!(await embedLiberado(id))) {
+        return socket.emit(
+          'recusado',
+          `"${titulo}" está bloqueado pelo dono pra tocar fora do YouTube — procura outra versão dela 📻`
+        )
       }
       const estavaOcioso = !r.fila[r.indice]
       r.fila.push({ videoId: id, titulo, de: jogador.nome, deId: jogador.id, imagem })
