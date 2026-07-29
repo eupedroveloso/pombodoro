@@ -184,6 +184,11 @@
 
   <div id="toast" hidden></div>
 
+  <!-- Sem isto, praça sem servidor é indistinguível de praça vazia: o pouso
+       otimista desenha o SEU pombo de qualquer jeito, e a leitura natural é
+       "meus amigos não entraram" quando na verdade ninguém está conectado. -->
+  <div id="avisoConexao" hidden></div>
+
   <!-- ─── modal: escolher tarefa do ciclo ─────────────────────── -->
   <div id="modalTarefa" class="modal" hidden>
     <div class="modal-caixa">

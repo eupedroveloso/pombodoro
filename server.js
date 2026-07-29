@@ -355,21 +355,71 @@ function novaSala(codigo) {
    fria ao mesmo tempo — só a primeira chamada toca o banco. */
 const salasCarregando = new Map()
 
+// Quanto tempo o banco pode segurar a porta da praça antes de a gente abrir
+// sem ele. Erro de banco já era tratado; o que não era é o banco PENDURAR —
+// não responder e nunca rejeitar. Nesse caso o `await pegarSala` do 'entrar'
+// ficava preso pra sempre: o 'estado' nunca saía, e como o pouso otimista
+// desenha o pombo do dono mesmo assim, a tela ficava idêntica a uma praça
+// vazia. Quem mandou convite lia como "meus amigos não entraram".
+const LIMITE_BANCO_MS = 8000
+
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms))
+
 function pegarSala(codigo) {
   if (salas.has(codigo)) return Promise.resolve(salas.get(codigo))
   if (salasCarregando.has(codigo)) return salasCarregando.get(codigo)
-  const promessa = carregarSala(codigo)
-    .catch((e) => {
-      console.error(`[pombodoro] falhei ao carregar a sala ${codigo} do banco:`, e.message)
-      return novaSala(codigo)
-    })
-    .then((sala) => {
-      if (!salas.has(codigo)) salas.set(codigo, sala)
-      salasCarregando.delete(codigo)
-      return salas.get(codigo)
-    })
+
+  const doBanco = carregarSala(codigo).catch((e) => {
+    console.error(`[pombodoro] falhei ao carregar a sala ${codigo} do banco:`, e.message)
+    return null // null = o banco não falou nada de útil
+  })
+
+  const promessa = Promise.race([doBanco, esperar(LIMITE_BANCO_MS).then(() => 'demorou')]).then((r) => {
+    salasCarregando.delete(codigo)
+    if (salas.has(codigo)) return salas.get(codigo)
+    if (r && r !== 'demorou') {
+      salas.set(codigo, r)
+      return r
+    }
+    // Praça FRIA: abre e funciona (relógio, mural, briga, rádio), mas não
+    // salva nada — sem saber o que já existia no banco, gravar é apagar.
+    const fria = novaSala(codigo)
+    fria.semBanco = true
+    salas.set(codigo, fria)
+    console.warn(
+      `[pombodoro] sala ${codigo} abriu SEM o banco (${r === 'demorou' ? 'timeout' : 'erro'}) — nada será salvo até ele responder`
+    )
+    if (r === 'demorou') doBanco.then((tarde) => tarde && adotarDadosDoBanco(codigo, tarde))
+    return fria
+  })
   salasCarregando.set(codigo, promessa)
   return promessa
+}
+
+/** O banco respondeu depois do timeout: completa a praça fria sem passar por
+    cima do que já aconteceu ao vivo, e libera a persistência de novo. */
+function adotarDadosDoBanco(codigo, doBanco) {
+  const sala = salas.get(codigo)
+  if (!sala?.semBanco) return
+  for (const [id, salvo] of doBanco.jogadores) {
+    const vivo = sala.jogadores.get(id)
+    if (!vivo) {
+      sala.jogadores.set(id, salvo)
+      continue
+    }
+    // Quem pousou durante o apagão entrou zerado: devolve o histórico dele.
+    // Se já ganhou migalha ao vivo, quem vale é a memória — o banco está velho.
+    if (vivo.migalhas === 0 && vivo.sprints === 0) {
+      vivo.migalhas = salvo.migalhas
+      vivo.sprints = salvo.sprints
+      vivo.sprintsHoje = salvo.sprintsHoje
+      if (!vivo.tarefas?.length) vivo.tarefas = salvo.tarefas
+      if (!vivo.tarefaAtual) vivo.tarefaAtual = salvo.tarefaAtual
+    }
+  }
+  sala.semBanco = false
+  console.warn(`[pombodoro] banco respondeu tarde — sala ${codigo} recuperou o histórico e volta a salvar`)
+  io.to(codigo).emit('estado', estado(sala))
 }
 
 async function carregarSala(codigo) {
@@ -520,6 +570,9 @@ async function persistir() {
   salvando = true
   try {
     for (const [codigo, sala] of salas) {
+      // Praça que abriu sem o banco não sabe o que já existia lá: gravar por
+      // cima apagaria migalhas e tarefas de quem nem estava online.
+      if (sala.semBanco) continue
       await prisma.sala.upsert({
         where: { codigo },
         update: { focusSec: sala.timer.focusSec, breakSec: sala.timer.breakSec },

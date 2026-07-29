@@ -460,6 +460,19 @@ footer {
 }
 @keyframes sobe { from { opacity: 0; transform: translate(-50%, 12px); } }
 
+/* Aviso de conexão: fica no topo da praça enquanto o servidor não responde.
+   Não some sozinho como o toast — o estado é que manda. */
+#avisoConexao {
+  position: fixed; left: 50%; top: 12px; transform: translateX(-50%);
+  z-index: 40;
+  background: var(--painel); border: 1px solid var(--linha);
+  border-left: 3px solid #f5a623;
+  padding: 9px 16px; border-radius: 10px;
+  font-size: 12px; text-align: center; max-width: min(520px, 92vw);
+  box-shadow: 0 8px 30px #0009;
+}
+#avisoConexao.caiu { border-left-color: #e0483d; }
+
 @media (max-width: 760px) {
   /* As abas continuam flutuando por cima (mais tela pros pombos no celular),
      só encolhem pra não tomar a largura toda. */
@@ -471,7 +484,7 @@ footer {
    Aplicada por cima de tudo: cantos duros, sombras chapadas e
    fonte de fliperama nos títulos e controles. */
 
-button, input, select, .cartao, .bloco, .pill, #toast, #ytwrap,
+button, input, select, .cartao, .bloco, .pill, #toast, #avisoConexao, #ytwrap,
 #previa, .cores button, #zoomBotoes button {
   border-radius: 0 !important;
 }
@@ -528,13 +541,15 @@ footer { border-top: 3px solid #101018; }
 aside { border-left: 3px solid #101018; }
 .bloco { border-bottom-width: 2px; }
 
-#toast {
+#toast, #avisoConexao {
   border: 3px solid #101018;
   box-shadow: 5px 5px 0 #00000077;
   font-family: 'Press Start 2P', ui-monospace, monospace;
   font-size: 9px;
   line-height: 1.7;
 }
+#avisoConexao { border-left: 3px solid #f5a623; }
+#avisoConexao.caiu { border-left-color: #e0483d; }
 
 #zoomBotoes button { border-width: 2px; }
 #previa { border: 3px solid #101018; }
@@ -602,11 +617,14 @@ aside { border-left: 4px solid var(--janela-escuro); }
   box-shadow: inset 0 0 0 4px var(--janela-escuro), inset 0 0 0 7px var(--bisel-luz), 10px 10px 0 #00000066;
   padding: 26px 24px;
 }
-#toast {
+#toast, #avisoConexao {
   background: var(--janela);
   border: 0;
   box-shadow: inset 0 0 0 3px var(--janela-escuro), inset 0 0 0 5px var(--bisel-luz), 6px 6px 0 #000000aa;
 }
+/* O bisel do console come a borda; o aviso mantém a tarja de status. */
+#avisoConexao { border-left: 4px solid #f5a623; }
+#avisoConexao.caiu { border-left-color: #e0483d; }
 
 /* botões chanfrados de console */
 button {

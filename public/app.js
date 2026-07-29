@@ -301,6 +301,7 @@ function entrarNaPraca() {
   aplicarPreferenciaAbas()
   pousoOtimista()
   socket.emit('entrar', { codigo, ...eu })
+  vigiarServidor()
 }
 
 /** O pombo pousa AGORA, sem esperar o servidor.
@@ -361,6 +362,8 @@ $('toggleControles').onclick = () => alternarAba($('asideControles'), 'controles
 function sairDaPraca() {
   if (!naPraca) return
   naPraca = false
+  clearTimeout(esperaServidor)
+  avisarConexao(null) // fora da praça, conexão não é assunto do jogador
   socket.emit('sair')
   // O servidor devolve o 'explodiu' — espera a explosão terminar antes de
   // trocar de tela, senão o próprio pombo não vê a própria morte.
@@ -415,6 +418,34 @@ const socket = io()
 let ultimo = null
 let deltaRelogio = 0 // relógio do servidor − relógio daqui
 
+/* ── aviso de conexão ──
+   O pouso otimista desenha o SEU pombo antes de o servidor responder — o
+   que é ótimo pro cold start, mas fazia praça-sem-conexão ficar idêntica a
+   praça-vazia. Quem mandou o convite lia isso como "meus amigos não
+   entraram" quando o problema era que NINGUÉM estava conectado. Agora o
+   silêncio do servidor tem nome na tela. */
+let esperaServidor = null
+
+function avisarConexao(texto, caiu = false) {
+  const el = $('avisoConexao')
+  if (!texto) {
+    el.hidden = true
+    return
+  }
+  el.textContent = texto
+  el.classList.toggle('caiu', caiu)
+  el.hidden = false
+}
+
+/** Começa a contar o silêncio: se o 'estado' não chegar, o aviso aparece. */
+function vigiarServidor() {
+  clearTimeout(esperaServidor)
+  if (!naPraca) return
+  esperaServidor = setTimeout(() => {
+    if (!ultimo) avisarConexao('A praça ainda não respondeu. O servidor pode estar acordando — isso leva até um minuto.')
+  }, 5000)
+}
+
 /* tarefas pessoais (mural) */
 let minhasTarefas = []
 let tarefaAtualId = null
@@ -422,8 +453,16 @@ let pendenteSelecaoRapida = false // criou tarefa direto no modal do ciclo: sele
 let tarefaParaConfirmar = null // id da tarefa aguardando "concluí / ainda não" no fim do foco
 
 socket.on('connect', () => {
-  if (naPraca) socket.emit('entrar', { codigo, ...eu })
+  if (!naPraca) return
+  socket.emit('entrar', { codigo, ...eu })
+  // Reconectou mas o 'estado' ainda não voltou: o aviso só sai quando voltar.
+  avisarConexao(ultimo ? null : 'Reconectando com a praça…')
+  vigiarServidor()
 })
+
+// Socket.io tenta reconectar sozinho pra sempre; o que faltava era CONTAR isso.
+socket.on('disconnect', () => naPraca && avisarConexao('Sem conexão com a praça — tentando voltar…', true))
+socket.on('connect_error', () => naPraca && avisarConexao('Não consegui falar com a praça — tentando de novo…', true))
 
 socket.on('estado', (s) => {
   // Servidor atualizou? Recarrega já — física velha polui a praça de todo mundo.
@@ -431,6 +470,9 @@ socket.on('estado', (s) => {
     location.reload()
     return
   }
+  // Servidor falou: qualquer aviso de conexão perdeu a validade.
+  clearTimeout(esperaServidor)
+  avisarConexao(null)
   const anterior = ultimo
   deltaRelogio = s.agoraServidor - Date.now()
   sincronizarRelogio(deltaRelogio) // os pedestres da cena andam nesse relógio
