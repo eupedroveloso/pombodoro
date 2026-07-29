@@ -28,7 +28,7 @@ if (!process.env.SESSION_SECRET) console.warn('[pombodoro] SESSION_SECRET ausent
 
 // Bump a cada mudança de física/protocolo: clientes com versão diferente
 // recarregam sozinhos — acaba o pombo fantasma de aba desatualizada.
-const VERSAO_APP = 20
+const VERSAO_APP = 21
 
 /* ─────────────────────────── regras da praça ─────────────────────────── */
 
@@ -40,7 +40,13 @@ const MAX_AMIGOS_BONUS = 3
 const MAX_SPRINTS_DIA = 8
 const TOLERANCIA_QUEDA_SEC = 120 // reconectou em até 2min? o sprint continua valendo
 const SOME_DA_PRACA_SEC = 600 // offline há 10min: sai do desenho, mantém as migalhas
-const ALCANCE_SOCO = 38 // px lógicos (pombo agora tem 36 de largura)
+// Soco é briga de bico colado. O sprite tem 36x34, então 38px de distância
+// deixava os dois corpos SEPARADOS e ainda assim valia acerto — e valia pros
+// dois lados e em qualquer altitude (dava pra socar quem estava voando lá em
+// cima). Agora precisa estar encostado, na frente e na mesma altura.
+const ALCANCE_SOCO = 24 // px lógicos entre os dois x (corpos sobrepostos)
+const RECUO_SOCO = 8 // o quanto do corpo ÀS COSTAS do agressor ainda conta
+const ALTURA_SOCO = 20 // diferença de altitude máxima (o sprite tem 34 de altura)
 const EMPURRAO_SOCO = 20
 
 function chaveDoDia(nowMs = Date.now()) {
@@ -1094,6 +1100,11 @@ io.on('connection', (socket) => {
         if (outro === jogador || outro.saiu || !Number.isFinite(outro.posX)) continue
         const dx = outro.posX - jogador.posX
         if (Math.abs(dx) > ALCANCE_SOCO) continue
+        // De frente: pombo não soca pelas costas. A folga do RECUO cobre os
+        // dois sobrepostos, aí vale mesmo com o alvo meio corpo atrás.
+        if (dx * jogador.posDir < -RECUO_SOCO) continue
+        // E na mesma altura: quem está voando acima do murro não apanha.
+        if (Math.abs((outro.posAlt || 0) - (jogador.posAlt || 0)) > ALTURA_SOCO) continue
         outro.posX = Math.max(0, Math.min(1280, outro.posX + (dx >= 0 ? 1 : -1) * EMPURRAO_SOCO))
         vitimas.push({ id: outro.id, x: outro.posX })
       }

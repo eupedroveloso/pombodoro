@@ -4,7 +4,7 @@ import { iconeHtml, iconeCanvas, montarIcones, EMOTE_ICONES } from './icones.js'
 import { iniciarPip, avisarPip } from './pip.js'
 
 const $ = (id) => document.getElementById(id)
-const VERSAO_APP = 20
+const VERSAO_APP = 21
 // A string do emoji continua sendo o ID no protocolo (o servidor repassa
 // como veio); só a EXIBIÇÃO vira ícone pixel art (EMOTE_ICONES).
 const EMOTES = ['👍', '🔥', '☕', '😵', '🍞', '🎧']

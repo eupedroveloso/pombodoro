@@ -126,13 +126,13 @@ export function iniciarCena(canvas, cbMover, cbAcertoPessoa) {
         v.vy = 0.3
       } else {
         v.bicandoAte = performance.now() + 700
-        aoMover?.({ x: Math.round(v.x), dir: v.dir, acao: 'bica' })
+        aoMover?.({ x: Math.round(v.x), dir: v.dir, alt: Math.round(v.alt), acao: 'bica' })
       }
     }
     if (k === 'e') {
       v.dormindo = false
       // O servidor decide quem apanha e devolve o evento 'soco' pra todos.
-      aoMover?.({ x: Math.round(v.x), dir: v.dir, acao: 'soco' })
+      aoMover?.({ x: Math.round(v.x), dir: v.dir, alt: Math.round(v.alt), acao: 'soco' })
     }
     // Espaço (cocô) é contínuo: tratado no moverLocal enquanto estiver segurando.
     // 1/2/3 são loops infinitos em TOGGLE: um toque liga, outro desliga
@@ -144,7 +144,7 @@ export function iniciarCena(canvas, cbMover, cbAcertoPessoa) {
       v.fumando = false
       v.cafe = false
       v.dancando = liga
-      aoMover?.({ x: Math.round(v.x), dir: v.dir, acao: liga ? 'danca' : 'anda' })
+      aoMover?.({ x: Math.round(v.x), dir: v.dir, alt: Math.round(v.alt), acao: liga ? 'danca' : 'anda' })
     }
     if (k === '2') {
       const liga = !v.bicandoLoop
@@ -153,7 +153,7 @@ export function iniciarCena(canvas, cbMover, cbAcertoPessoa) {
       v.fumando = false
       v.cafe = false
       v.bicandoLoop = liga
-      aoMover?.({ x: Math.round(v.x), dir: v.dir, acao: liga ? 'bica2' : 'anda' })
+      aoMover?.({ x: Math.round(v.x), dir: v.dir, alt: Math.round(v.alt), acao: liga ? 'bica2' : 'anda' })
     }
     if (k === '3') {
       const liga = !v.dormindo
@@ -163,7 +163,7 @@ export function iniciarCena(canvas, cbMover, cbAcertoPessoa) {
       v.cafe = false
       v.dormindo = liga
       if (liga) v.dormiuEm = performance.now()
-      aoMover?.({ x: Math.round(v.x), dir: v.dir, acao: liga ? 'dorme' : 'anda' })
+      aoMover?.({ x: Math.round(v.x), dir: v.dir, alt: Math.round(v.alt), acao: liga ? 'dorme' : 'anda' })
     }
     // 4 (cigarro) e 5 (café) são loops que SOBREVIVEM a andar/voar — só
     // desligam apertando a tecla de novo. Por isso usam ações próprias de
@@ -177,7 +177,7 @@ export function iniciarCena(canvas, cbMover, cbAcertoPessoa) {
       v.cafe = false
       v.fumando = liga
       if (liga) v.fumaInicioEm = performance.now()
-      aoMover?.({ x: Math.round(v.x), dir: v.dir, acao: liga ? 'fuma' : 'fuma-fim' })
+      aoMover?.({ x: Math.round(v.x), dir: v.dir, alt: Math.round(v.alt), acao: liga ? 'fuma' : 'fuma-fim' })
     }
     if (k === '5') {
       const liga = !v.cafe
@@ -187,7 +187,7 @@ export function iniciarCena(canvas, cbMover, cbAcertoPessoa) {
       v.fumando = false
       v.cafe = liga
       if (liga) v.cafeInicioEm = performance.now()
-      aoMover?.({ x: Math.round(v.x), dir: v.dir, acao: liga ? 'cafe' : 'cafe-fim' })
+      aoMover?.({ x: Math.round(v.x), dir: v.dir, alt: Math.round(v.alt), acao: liga ? 'cafe' : 'cafe-fim' })
     }
   })
   addEventListener('keyup', (e) => teclas.delete(e.key.toLowerCase()))
@@ -844,12 +844,19 @@ function quadro(agora) {
         // Decolar CANCELA toda ação em loop (café incluído) — MENOS o
         // cigarro, que sobe junto: corpo bate asa normalmente e o cigarro
         // vira OVERLAY pendurado no bico.
-        v.dormindo = false
-        v.dancando = false
-        v.bicandoLoop = false
-        if (v.cafe) {
-          v.cafe = false
-          if (j.id === estado.meuId) aoMover?.({ x: Math.round(v.x), dir: v.dir, alt: Math.round(v.alt), acao: 'cafe-fim' })
+        // Só o DONO cancela. No pombo dos outros, `noAr` é um palpite tirado
+        // do lerp da rede (um solavanco de 1px já dava true) e apagava a
+        // dança que o servidor tinha acabado de anunciar. Quem decola de
+        // verdade avisa todo mundo com o 'anda' seguinte — o estado dos
+        // pombos remotos vem da rede, não de adivinhação local.
+        if (meu) {
+          v.dormindo = false
+          v.dancando = false
+          v.bicandoLoop = false
+          if (v.cafe) {
+            v.cafe = false
+            aoMover?.({ x: Math.round(v.x), dir: v.dir, alt: Math.round(v.alt), acao: 'cafe-fim' })
+          }
         }
         // Batida completa: cima → meio → baixo → meio (o meio amortece).
         sprite = ['vooCima', 'vooMeio', 'vooBaixo', 'vooMeio'][Math.floor(agora / 90) % 4]
@@ -1066,7 +1073,13 @@ function moverLocal(v, agora) {
     aoMover?.({ x: Math.round(v.x), dir: v.dir, alt: Math.round(v.alt), acao: 'coco' })
   }
 
-  const noAr = v.alt < 0 || v.vy !== 0
+  // "No ar" aqui é VOAR mesmo — não é "estar acima da calçada". Enquanto
+  // isso testou `v.alt < 0`, todo pombo parado num banco, no muro ou no fio
+  // mandava um 'anda' a cada 120ms; como 'anda' é justamente o aviso que
+  // cancela os loops, a dança/soneca/bicada de quem estava em cima de algo
+  // morria na tela dos OUTROS no quadro seguinte (na do dono, não). O
+  // v.noAr vem da fisicaLocal: só é true sem apoio sob as patas.
+  const noAr = v.noAr || v.vy !== 0
   const altRedonda = Math.round(v.alt)
   const precisaAvisar = v.andando || noAr || v.ultimoAltEnviado !== altRedonda
   if (precisaAvisar && aoMover && agora - ultimoEnvio > 120) {
