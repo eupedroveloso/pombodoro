@@ -6,7 +6,11 @@
   "description": "A praca onde os pombos trabalham. Pomodoro coletivo em pixel art.",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "postinstall": "prisma generate"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
