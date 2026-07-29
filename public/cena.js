@@ -1,4 +1,4 @@
-import { spriteCanvas, CRISTAS, CORPOS, PALETA } from './sprites.js'
+import { spriteCanvas, CRISTAS, CORPOS, PALETA, CABECA } from './sprites.js'
 import { pintarEmCanvas, niveisEm, LARG, ALT, CHAO } from './cenario.js'
 import { EMOTE_ICONES, iconeCanvas } from './icones.js'
 
@@ -14,9 +14,8 @@ import { EMOTE_ICONES, iconeCanvas } from './icones.js'
 const SPRITE = 36 // largura do pombo (grade 36x34)
 const LINHA_CHAO = CHAO // meio da faixa de pedra portuguesa
 
-const SUJEIRA_MAX = 5 // no nível máximo o pombo desaparece debaixo do cocô
-const SUJO_BASE_MS = 12000
-const SUJO_EXTRA_MS = 7000 // cada acerto novo estende a duração — fica sujo por mais tempo
+const SUJEIRA_MAX = 5 // nível máximo de cobertura — o pombo continua visível sob o cocô
+const SUJO_MS = 5000 // cada acerto deixa sujo por 5s; depois disso o pombo fica limpo
 
 const COCO_MONTE_MAX = 80 // monte BEM grande: acumula bastante antes de parar de crescer
 const COCO_VIDA_CHEIA_MS = 60000 // fica sólido por 1 minuto
@@ -475,7 +474,7 @@ function vistaDe(j, i) {
       fala: null,
       falaAte: 0,
       sujoAte: 0,
-      sujeira: 0, // nível de cocô acumulado; no máximo, o pombo some debaixo dele
+      sujeira: 0, // nível de cocô acumulado (1..SUJEIRA_MAX), desenhado por cima do sprite
       piscarAte: 0,
       piscarProximoEm: performance.now() + 1200 + Math.random() * 4000,
       emote: null,
@@ -640,13 +639,9 @@ function quadro(agora) {
 
     desenharSombra(v.x, v.alt)
 
-    if (v.sujeira >= SUJEIRA_MAX && agora < v.sujoAte) {
-      // Coberto até desaparecer: só os olhos (piscando) espiam por cima do montinho.
-      desenharCobertoDeCoco(x, y, piscando)
-    } else {
-      desenharSprite(sprite, x, y, j.corpo, j.crista, j.acessorio, espelhar, piscando)
-      if (agora < v.sujoAte) desenharSujeira(x, y, v.sujeira)
-    }
+    desenharSprite(sprite, x, y, j.corpo, j.crista, j.acessorio, espelhar, piscando)
+    // Sujeira é OVERLAY: o pombo nunca some — os respingos escalam com o nível.
+    if (agora < v.sujoAte && v.sujeira) desenharSujeira(x, y, v.sujeira, espelhar, agora, sprite)
     if (j.id === estado.meuId) miraCam = { x: x + SPRITE / 2, y: y - 10 }
     rotulos.push({ j, v, x: x + SPRITE / 2, y })
   }
@@ -930,54 +925,102 @@ function desenharTermica(x, y, espelhar) {
   offCtx.drawImage(img, px, py)
 }
 
-/** Respingos brancos no pombo atingido: cabeça, costas e asa. */
-/** Respingos possíveis, do topo da cabeça até a cauda — quanto maior o
-    nível de sujeira, mais deles aparecem (até virar cobertura total). */
-const MANCHAS_SUJEIRA = [
-  [8, 4, 3, 2, '#f8f6ef'],
-  [8, 7, 3, 1, '#c9c2ae'],
-  [11, 6, 2, 2, '#f8f6ef'],
-  [17, 13, 3, 2, '#f8f6ef'],
-  [18, 15, 2, 1, '#c9c2ae'],
-  [7, 17, 2, 2, '#f8f6ef'],
-  [5, 13, 2, 2, '#f8f6ef'],
-  [22, 11, 3, 2, '#f8f6ef'],
-  [4, 8, 2, 2, '#f8f6ef'],
-  [13, 20, 3, 2, '#f8f6ef'],
-  [27, 12, 3, 2, '#f8f6ef'],
-  [8, 23, 3, 2, '#f8f6ef'],
-]
-
-function desenharSujeira(x, y, nivel) {
-  const px = Math.round(x)
-  const py = Math.round(y) - 33 // topo aproximado do sprite (grade de 34)
-  const n = Math.min(Math.max(nivel || 1, 1), SUJEIRA_MAX - 1)
-  const qtd = Math.min(2 + n * 2, MANCHAS_SUJEIRA.length)
-  for (let i = 0; i < qtd; i++) {
-    const [dx, dy, w, h, cor] = MANCHAS_SUJEIRA[i]
-    offCtx.fillStyle = cor
-    offCtx.fillRect(px + dx, py + dy, w, h)
-  }
+/* ── sujeira de cocô ──────────────────────────────────────────────────────
+   Respingos desenhados POR CIMA do sprite (o pombo nunca some), na mesma
+   grade de 36×34, sprite olhando pra esquerda. Cada splat é um mini-mapa de
+   pixels multi-tom com forma orgânica; alguns têm escorridos de 1px que
+   crescem com o tempo até a gota desprender e cair — depois recomeça.
+   `n` é o nível de sujeira a partir do qual o splat aparece (1..SUJEIRA_MAX);
+   no máximo entram placas pesadas na cabeça e no dorso, mas olho (cols 6..9,
+   dy 7..9) e bico (cols 0..4) ficam SEMPRE livres pra leitura. */
+const COCO_TONS = {
+  W: '#f8f6ef', // branco fresco pegando a luz de cima-esquerda
+  w: '#eae4d2', // off-white — corpo da placa
+  G: '#c9c2ae', // cinza-esverdeado no meio-tom
+  g: '#a8a288', // esverdeado na sombra (matiz desliza, não só escurece)
+  k: '#7b7460', // toque escuro de borda — assenta o respingo na pluma
 }
 
-/** Nível máximo de sujeira: o pombo some debaixo de um montinho — só os
-    olhos escapam por cima, piscando de vez em quando. */
-function desenharCobertoDeCoco(x, y, piscando) {
+/* dy é medido do topo do sprite (y-33). pingos: dx relativo ao splat,
+   alt = comprimento máximo do fio, t = ritmo em ms, f = defasagem.
+   `cab: true` = respingo na CABEÇA — segue a tabela CABECA da pose, igual
+   aos acessórios, senão a placa flutua quando o pombo abaixa pra bicar. */
+const SPLATS_COCO = [
+  // nível 1 — o acerto na moleira, escorrendo pela nuca
+  { n: 1, cab: true, x: 6, y: 2, m: ['..wW..', '.WWWWg', 'gWWWGg', '.kGgk.'], pingos: [{ dx: 5, alt: 4, t: 300, f: 0 }] },
+  { n: 1, x: 18, y: 14, m: ['Wg'] },
+  // nível 2 — placa no dorso com escorrido, respingo na asa
+  { n: 2, x: 15, y: 13, m: ['.wWWw.', 'GWWWWg', '.gGgk.'], pingos: [{ dx: 2, alt: 5, t: 340, f: 900 }] },
+  { n: 2, x: 10, y: 19, m: ['wW', '.g'] },
+  // nível 3 — cauda atingida e respingo na nuca
+  { n: 3, x: 27, y: 12, m: ['.WWg', 'wWGg', '.kg.'], pingos: [{ dx: 1, alt: 3, t: 380, f: 400 }] },
+  { n: 3, cab: true, x: 12, y: 5, m: ['.Ww', 'GWg'] },
+  // nível 4 — asa grande, uropígio e peito
+  { n: 4, x: 8, y: 21, m: ['.wWWg.', 'gWWWWg', '.kGg..'], pingos: [{ dx: 3, alt: 3, t: 320, f: 1300 }] },
+  { n: 4, x: 22, y: 17, m: ['WGg', '.g.'] },
+  { n: 4, x: 5, y: 13, m: ['Ww', 'gG'] },
+  // nível 5 — cobertura pesada: placas grandes escorrendo pela cabeça e
+  // pelo dorso, respingos até a ponta da cauda. Olho e bico continuam livres.
+  {
+    n: 5,
+    cab: true,
+    x: 4,
+    y: 1,
+    m: ['...wWWWw...', '.wWWWWWWWw.', 'wWWWWWWWWWg', 'gGWWWWWWGGg', '.k.gGg..Ggk'],
+    pingos: [
+      { dx: 1, alt: 3, t: 300, f: 200 }, // escorre na frente da cara, beirando o olho
+      { dx: 9, alt: 5, t: 360, f: 700 }, // escorre pela nuca
+    ],
+  },
+  {
+    n: 5,
+    x: 14,
+    y: 12,
+    m: ['..wWWWWw....', '.wWWWWWWWWw.', 'gWWWWWWWWWGg', '.kgGWWWGgk..', '...kgGk.....'],
+    pingos: [
+      { dx: 4, alt: 6, t: 340, f: 0 },
+      { dx: 9, alt: 4, t: 300, f: 1500 },
+    ],
+  },
+  { n: 5, x: 26, y: 10, m: ['.wWWg', 'wWWGg', '.gGk.'] },
+  { n: 5, x: 32, y: 13, m: ['Wg'] },
+  { n: 5, x: 11, y: 16, m: ['wW', 'gG', '.g'] },
+  { n: 5, x: 19, y: 20, m: ['Wg', 'g.'] },
+  { n: 5, x: 9, y: 26, m: ['wg'] },
+]
+
+function desenharSujeira(x, y, nivel, espelhar, agora, pose) {
   const px = Math.round(x)
-  const py = Math.round(y) - 1 // base do montinho na linha dos pés
-  const larg = 28
-  const altura = 21
-  offCtx.fillStyle = '#b9b3a0'
-  offCtx.fillRect(px + SPRITE / 2 - Math.ceil(larg / 2), py, larg + 1, 1)
-  for (let ry = 0; ry < altura; ry++) {
-    const wRow = Math.max(2, Math.round(larg - (ry * larg) / altura))
-    offCtx.fillStyle = ry === altura - 1 ? '#f8f6ef' : ry % 2 ? '#e8e4d4' : '#efece0'
-    offCtx.fillRect(px + SPRITE / 2 - Math.floor(wRow / 2), py - 1 - ry, wRow, 1)
+  const py = Math.round(y) - 33 // topo aproximado do sprite (grade de 34)
+  const n = Math.min(Math.max(nivel || 1, 1), SUJEIRA_MAX)
+  const [cabDx, cabDy] = CABECA[pose] || [0, 0]
+  const pinta = (cx, cy, cor) => {
+    offCtx.fillStyle = cor
+    offCtx.fillRect(px + (espelhar ? SPRITE - 1 - cx : cx), py + cy, 1, 1)
   }
-  if (!piscando) {
-    offCtx.fillStyle = PALETA.K
-    offCtx.fillRect(px + SPRITE / 2 - 8, py - altura + 3, 3, 3)
-    offCtx.fillRect(px + SPRITE / 2 + 5, py - altura + 3, 3, 3)
+  for (const s of SPLATS_COCO) {
+    if (s.n > n) continue
+    const ox = s.cab ? cabDx : 0 // respingo de cabeça acompanha a pose
+    const oy = s.cab ? cabDy : 0
+    for (let r = 0; r < s.m.length; r++)
+      for (let c = 0; c < s.m[r].length; c++) {
+        const tom = COCO_TONS[s.m[r][c]]
+        if (tom) pinta(s.x + ox + c, s.y + oy + r, tom)
+      }
+    if (!s.pingos) continue
+    for (const p of s.pingos) {
+      // Fio cresce 1px por batida do relógio; passado `alt`, a gota desprende
+      // e cai sozinha por 3px enquanto o fio recolhe. Aí o ciclo recomeça.
+      const fase = Math.floor((agora + (p.f || 0)) / p.t) % (p.alt + 4)
+      const gx = s.x + ox + p.dx
+      const gy = s.y + oy + s.m.length - 1 // pende da última linha do splat
+      if (fase <= p.alt) {
+        for (let k = 1; k <= fase; k++) pinta(gx, gy + k, k === fase && fase > 1 ? COCO_TONS.W : COCO_TONS.G)
+      } else {
+        pinta(gx, gy + 1, COCO_TONS.g) // resto do fio que ficou
+        pinta(gx, gy + p.alt + (fase - p.alt), COCO_TONS.w) // gota em queda
+      }
+    }
   }
 }
 
@@ -988,15 +1031,15 @@ function animarPelotas(agora) {
     p.y += p.vy
     p.vy += 0.12
     // Na altura da cabeça de quem está embaixo, a sujeira "pega" — e ACUMULA:
-    // cada acerto novo sobe um nível e estende a duração. No nível máximo o
-    // pombo fica completamente coberto (ver quadro()).
+    // cada acerto novo sobe um nível e estende a duração. No nível máximo a
+    // cobertura é pesada (placas e escorridos), mas o pombo segue visível.
     if (!p.aplicado && p.vitimas.length && p.y >= LINHA_CHAO - 24) {
       p.aplicado = true
       for (const id of p.vitimas) {
         const vv = vistas.get(id)
         if (vv) {
           vv.sujeira = Math.min((vv.sujeira || 0) + 1, SUJEIRA_MAX)
-          vv.sujoAte = agora + SUJO_BASE_MS + vv.sujeira * SUJO_EXTRA_MS
+          vv.sujoAte = agora + SUJO_MS
           vv.emote = '💩'
           vv.emoteAte = agora + 1500
         }
