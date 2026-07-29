@@ -1,0 +1,42 @@
+# Pombodoro no Render — o que a Vercel não consegue ser: um processo VIVO.
+#
+# O Socket.io precisa de uma conexão persistente, e serverless não segura
+# conexão: cada requisição cai numa lambda diferente e a sessão morre no ato
+# (na Vercel, a 2ª requisição com o mesmo sid responde "Session ID unknown").
+# Aqui é um processo Node de verdade, então o cronômetro, o soco, o cocô e o
+# bando funcionam igual ao localhost.
+#
+# COMO USAR: no painel do Render, New > Blueprint, aponte pro repositório.
+# Ele lê este arquivo e pede só os dois segredos marcados com sync:false.
+# O banco continua onde está (Prisma Postgres) — nada a migrar.
+#
+# ATENÇÃO ao plano free: o serviço hiberna depois de ~15 min SEM TRÁFEGO e
+# leva perto de um minuto pra acordar. Enquanto houver um pombo na praça, o
+# WebSocket mantém tráfego e ele não dorme — nenhum sprint em andamento
+# corre risco. Quem paga o cold start é o primeiro pombo do dia, e é aí que
+# o pouso otimista ajuda: o pombo dele aparece na hora, a praça se completa
+# quando o servidor acorda.
+
+services:
+  - type: web
+    name: pombodoro
+    runtime: node
+    plan: free
+    # O postinstall do package.json roda o `prisma generate` — sem ele o
+    # import do PrismaClient quebra no boot fora da Vercel.
+    buildCommand: npm install
+    startCommand: npm start
+    # O server.js lê process.env.PORT; o Render injeta a porta sozinho.
+    healthCheckPath: /
+    envVars:
+      # Cole o valor do seu .env.local (o mesmo Prisma Postgres de hoje).
+      - key: DATABASE_URL
+        sync: false
+      # Sem isso as sessões caem a cada restart. O Render gera um valor
+      # forte e PERSISTENTE — não muda a cada deploy.
+      - key: SESSION_SECRET
+        generateValue: true
+      # Vazio = login com Google desligado, só convidados (o server avisa no
+      # boot). Cole o client id quando quiser o login de volta.
+      - key: GOOGLE_CLIENT_ID
+        sync: false

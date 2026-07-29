@@ -888,6 +888,7 @@ $('btnLink').onclick = async () => {
 let player = null
 let playerPronto = false
 let radioAtual = null
+let tentouDeNovo = null // videoId que já recarreguei depois de um erro passageiro
 let mutado = true // autoplay só é permitido mudo; o botão 🔇 libera o som
 
 function iniciarRadio() {
@@ -913,9 +914,21 @@ function iniciarRadio() {
           }
           registrarDuracao()
         },
-        onError: () => {
+        // O código do erro vai junto: é ele que decide, no servidor, se a
+        // música morre pra sala (removida/embed proibido) ou se foi só o meu
+        // navegador tropeçando. Ver decidirPulo() no server.js.
+        onError: (e) => {
           const faixa = radioAtual?.fila[radioAtual.indice]
-          if (faixa) socket.emit('radio', { acao: 'erro', videoId: faixa.videoId })
+          if (!faixa) return
+          const codigo = Number(e?.data) || 0
+          socket.emit('radio', { acao: 'erro', videoId: faixa.videoId, codigo })
+          // Erro passageiro (2 = parâmetro, 5 = player HTML5): o servidor não
+          // vai pular só por minha causa, então eu me viro — recarrego a
+          // faixa uma vez antes de desistir.
+          if (codigo !== 2 && codigo !== 5) return
+          if (tentouDeNovo === faixa.videoId) return
+          tentouDeNovo = faixa.videoId
+          setTimeout(() => sincronizarRadio(), 1500)
         },
       },
     })

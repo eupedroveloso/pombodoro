@@ -1,7 +1,7 @@
 import { spriteCanvas, CRISTAS, CORPOS, PALETA, CABECA } from './sprites.js'
 import { pintarEmCanvas, niveisEm, LARG, ALT, CHAO, FIOS, desenharAnimados } from './cenario.js'
 import { PESSOAS, pessoaCanvas } from './pessoas.js'
-import { EMOTE_ICONES, iconeCanvas } from './icones.js'
+import { EMOTE_ICONES, iconeCanvas, desenharPlaquinha } from './icones.js'
 
 /* A cena é desenhada num canvas lógico de 640x320 e depois ampliada por um
    fator INTEIRO. É isso que mantém o pixel quadrado em qualquer tela.
@@ -1484,6 +1484,9 @@ function desenharRotulo({ j, v, x, y }, escala, agora) {
 
   if (v.fala && agora < v.falaAte) desenharBalao(v.fala, cx, topo, escala)
   else if (v.fala) v.fala = null
+  // Sem fala e no foco: mostra o que este pombo foi fazer. A fala tem
+  // prioridade porque é passageira — a plaquinha volta quando ela some.
+  else if (j.tarefa && trabalhandoDe(j)) desenharPlaquinhaTarefa(j, j.tarefa, cx, topo, escala)
 
   // zZz do sono: três z's subindo em ciclo, com balanço e fade.
   if (v.dormindo) {
@@ -1542,6 +1545,58 @@ function desenharBalao(texto, cx, topoRotulo, escala) {
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
   linhas.forEach((l, i) => ctx.fillText(l, bx + padX, by + 4 * (escala / 4) + i * altLinha))
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'bottom'
+}
+
+/* Plaquinha da tarefa do sprint: a tabuinha de madeira com a folha do mural
+   presa por uma presilha (arte do ilustrador, em icones.js). Fica pendurada
+   o foco inteiro, então é de propósito um objeto AFIXADO — o oposto do balão
+   de fala, que é conversa passageira. A faixa de tinta na madeira usa a cor
+   da crista do dono, igual à barrinha do rótulo de nome. */
+const TAREFA_COLUNAS = 16 // largura útil da folha, em caracteres
+
+/** Quebra o texto da tarefa em até 2 linhas de `colunas`, com reticência. */
+function quebrarTarefa(texto, colunas) {
+  const palavras = String(texto).split(/\s+/).filter(Boolean)
+  const linhas = ['']
+  for (const p of palavras) {
+    const i = linhas.length - 1
+    if ((linhas[i] + ' ' + p).trim().length <= colunas) linhas[i] = (linhas[i] + ' ' + p).trim()
+    else if (linhas.length < 2) linhas.push(p)
+    else {
+      linhas[1] = linhas[1].slice(0, colunas - 1) + '…'
+      break
+    }
+  }
+  // Palavra única gigante (URL, nome de arquivo): corta na força.
+  return linhas.map((l) => (l.length > colunas ? l.slice(0, colunas - 1) + '…' : l)).filter(Boolean)
+}
+
+function desenharPlaquinhaTarefa(j, texto, cx, topoRotulo, escala) {
+  const linhas = quebrarTarefa(texto, TAREFA_COLUNAS)
+  if (!linhas.length) return
+  const fator = Math.max(1, Math.round(escala))
+  // A largura da placa sai da MEDIDA do texto, então a fonte vem primeiro.
+  ctx.font = `${Math.max(9, Math.round(3.6 * fator))}px ui-monospace, monospace`
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'top'
+  const largTexto = Math.max(...linhas.map((l) => ctx.measureText(l).width))
+
+  const caixa = desenharPlaquinha(
+    ctx,
+    cx,
+    topoRotulo - 4 * (escala / 4),
+    largTexto,
+    linhas.length,
+    escala,
+    CRISTAS[j.crista % CRISTAS.length]
+  )
+
+  ctx.fillStyle = '#26201c'
+  linhas.forEach((l, i) =>
+    ctx.fillText(l, caixa.textoX, caixa.textoTopo + i * caixa.altLinha + Math.round(fator * 0.4))
+  )
   ctx.textAlign = 'center'
   ctx.textBaseline = 'bottom'
 }

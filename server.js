@@ -68,7 +68,8 @@ function novoSolo(focusSec, breakSec) {
 
 /** Rádio: fila coletiva de YouTube. O servidor é a autoridade de posição. */
 function novoRadio() {
-  return { fila: [], indice: 0, tocando: false, inicioEm: 0, offsetSec: 0 }
+  // tropecos: reclamações de erro da faixa atual (ver decidirPulo).
+  return { fila: [], indice: 0, tocando: false, inicioEm: 0, offsetSec: 0, tropecos: null }
 }
 
 /** Em que segundo da faixa atual a sala está. */
@@ -83,7 +84,41 @@ function tocarFaixa(r, i, tocar = true) {
   r.tocando = tocar && Boolean(r.fila[i])
 }
 
+/* ── quem pode pular uma música ──
+   O player do YouTube devolve um CÓDIGO junto do erro, e eles não são todos
+   iguais:
+     100 · vídeo removido ou privado
+     101 e 150 · o dono proibiu tocar fora do YouTube
+   Esses três não têm conserto: pula na hora, e o mural explica o motivo.
+     2 · parâmetro inválido      5 · erro do player HTML5
+   Esses dois costumam ser problema de UM navegador — extensão, bloqueador,
+   rede tossindo. Antes, o primeiro cliente a tropeçar derrubava a música da
+   sala inteira; era a causa das faixas "puladas sozinhas". Agora só pula
+   quando TODO MUNDO que está ouvindo tropeça na mesma faixa. Quem tropeçou
+   sozinho tenta de novo por conta própria (ver o onError no app.js). */
+const ERRO_SEM_CONSERTO = new Set([100, 101, 150])
+
+function decidirPulo(sala, r, atual, socket, codigo) {
+  if (ERRO_SEM_CONSERTO.has(codigo)) {
+    anunciar(
+      sala,
+      codigo === 100
+        ? `"${atual.titulo}" saiu do ar — pulando ⏭`
+        : `"${atual.titulo}" não deixa tocar fora do YouTube — pulando ⏭`
+    )
+    return true
+  }
+  // Erro possivelmente passageiro: junta as reclamações desta faixa.
+  if (r.tropecos?.videoId !== atual.videoId) r.tropecos = { videoId: atual.videoId, quem: new Set() }
+  r.tropecos.quem.add(socket.id)
+  const ouvintes = [...sala.jogadores.values()].filter((j) => j.online).length
+  if (r.tropecos.quem.size < Math.max(1, ouvintes)) return false // ainda tem gente ouvindo bem
+  anunciar(sala, `"${atual.titulo}" não tocou pra ninguém — pulando ⏭`)
+  return true
+}
+
 function avancarRadio(r) {
+  r.tropecos = null // faixa nova, reclamações zeradas
   if (r.indice < r.fila.length - 1) tocarFaixa(r, r.indice + 1)
   else {
     // Fim da fila: para e aponta pra "depois do fim" — a próxima música
@@ -114,9 +149,15 @@ const UA_NAVEGADOR =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 const importacoes = new Set() // socket.id com importação em andamento (evita colada dupla)
 
+/* A REGRA DO LINK, e ela é só uma: manda o que o link APONTA.
+   Link de vídeo (tem v=/youtu.be/shorts) → entra só aquele vídeo, mesmo que
+   venha com &list= pendurado. Link de playlist pura (playlist?list=ID, sem
+   vídeo nenhum) → entra a playlist.
+   Antes era o contrário: qualquer list= sequestrava o link e importava a
+   playlist inteira. Quem copia o endereço de uma música ouvindo playlist
+   recebe watch?v=X&list=Y do YouTube — e levava 25 músicas sem pedir. */
 function extrairPlaylistId(url) {
-  // Cobre youtube.com/playlist?list=ID, watch?v=X&list=ID e youtu.be/X?list=ID.
-  // Se tem list=, a intenção é a playlist inteira — o vídeo do link é ignorado.
+  if (extrairVideoId(url)) return null // o vídeo do link ganha, sempre
   const m = String(url).match(/[?&]list=([\w-]+)/)
   return m ? m[1] : null
 }
@@ -339,14 +380,31 @@ function anunciar(sala, texto) {
 }
 
 /* ─────────────────────────── mural de tarefas ─────────────────────────── */
-/* Tarefas são PESSOAIS — cada jogador só vê e mexe nas suas. Por isso não
-   entram em jogadoresVisiveis()/estado() (que é broadcast pra sala inteira);
-   viajam num evento próprio, direcionado só ao socket do dono. */
+/* O mural é PESSOAL — cada jogador só vê e mexe nas suas tarefas, e ele
+   viaja num evento próprio ('minhasTarefas'), direcionado só ao socket do
+   dono. Nunca entra no estado() da sala.
+   ÚNICA exceção: o TEXTO da tarefa escolhida pro sprint em andamento. Esse
+   vai em jogadoresVisiveis() pra praça mostrar, em cima da cabeça de quem
+   está no foco, o que a pessoa foi fazer — é o combinado do bando. O resto
+   do mural (as outras tarefas, as concluídas, o histórico) continua só do
+   dono. */
 
 const MAX_TAREFAS = 60
 const gerarIdTarefa = () => `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 
 const tarefaSerializada = (t) => ({ id: t.id, texto: t.texto, status: t.status, criadaEm: t.criadaEm })
+
+/** Texto da tarefa que o jogador escolheu pro sprint — o único pedaço do
+    mural que a sala inteira enxerga (ver o bloco acima). Cortado curto: vai
+    caber numa plaquinha em cima da cabeça do pombo, não num parágrafo. */
+const TAREFA_NA_PRACA_MAX = 48
+
+function tarefaDoSprint(j) {
+  if (!j.tarefaAtual) return null
+  const t = (j.tarefas || []).find((x) => x.id === j.tarefaAtual)
+  if (!t || t.status === 'concluida') return null
+  return String(t.texto).slice(0, TAREFA_NA_PRACA_MAX)
+}
 
 function enviarTarefas(jogador) {
   if (!jogador.socketId) return
@@ -494,6 +552,9 @@ function jogadoresVisiveis(sala) {
       // desenhá-lo certo — só o flag viaja, nunca o relógio dele.
       soloAtivo: Boolean(j.solo?.ativo),
       soloFoco: Boolean(j.solo?.ativo && j.solo.fase === 'foco' && j.solo.rodando),
+      // O que este pombo foi fazer neste sprint (só o texto da tarefa
+      // selecionada; o mural dele continua privado).
+      tarefa: tarefaDoSprint(j),
     }))
     .sort((a, b) => b.migalhas - a.migalhas || a.nome.localeCompare(b.nome))
 }
@@ -889,6 +950,7 @@ io.on('connection', (socket) => {
     if (!jogador.tarefas) jogador.tarefas = []
     const acao = String(payload.acao || '')
     const id = String(payload.id || '')
+    const tarefaAntes = tarefaDoSprint(jogador) // pra saber se a plaquinha da praça muda
 
     if (acao === 'criar' || acao === 'duplicar') {
       let texto = String(payload.texto || '').trim().slice(0, 140)
@@ -940,6 +1002,10 @@ io.on('connection', (socket) => {
 
     salvar()
     enviarTarefas(jogador)
+    // A plaquinha em cima da cabeça é estado da SALA. Reemite só quando o
+    // texto que os outros enxergam muda de verdade — mexer no mural (criar,
+    // editar outra, reabrir) não faz a praça inteira receber pacote.
+    if (tarefaDoSprint(jogador) !== tarefaAntes) io.to(sala.codigo).emit('estado', estado(sala))
   })
 
   socket.on('emote', (payload = {}) => {
@@ -1050,6 +1116,12 @@ io.on('connection', (socket) => {
       const id = extrairVideoId(url)
       if (!id) return socket.emit('recusado', 'Não entendi esse link do YouTube 🤔')
       if (r.fila.length >= 50) return socket.emit('recusado', 'A fila está lotada (50 músicas)')
+      // Repetida já entrava sem reclamar (só a importação de playlist barrava),
+      // e a fila ficava com a mesma música duas vezes — quando ela não tocava,
+      // o aviso de "pulando" saía duplicado. Aproveita o título de quem já
+      // está na fila e nem gasta a consulta ao YouTube.
+      const jaNaFila = r.fila.find((f) => f.videoId === id)
+      if (jaNaFila) return socket.emit('recusado', `"${jaNaFila.titulo}" já está na fila 📻`)
       // Valida ANTES de aceitar: vídeo morto/embed bloqueado nem entra.
       // O oEmbed também traz a miniatura de graça, sem precisar de chave de API
       // (duração não vem por aqui — a Data API exigiria uma chave que não temos).
@@ -1111,10 +1183,10 @@ io.on('connection', (socket) => {
         if (!r.fila[r.indice]) r.tocando = false
       }
     } else if (acao === 'terminou' || acao === 'erro') {
-      // Vários clientes reportam a mesma faixa; só o primeiro avança —
-      // pros demais o videoId já não bate e o evento morre aqui.
+      // 'terminou': vários clientes reportam a mesma faixa; só o primeiro
+      // avança — pros demais o videoId já não bate e o evento morre aqui.
       if (!atual || atual.videoId !== payload.videoId) return
-      if (acao === 'erro') anunciar(sala, `"${atual.titulo}" não tocou por aqui — pulando ⏭`)
+      if (acao === 'erro' && !decidirPulo(sala, r, atual, socket, Number(payload.codigo) || 0)) return
       avancarRadio(r)
     } else {
       return
