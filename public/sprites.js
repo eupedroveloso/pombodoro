@@ -20,6 +20,9 @@ export const PALETA = {
   G: '#e9e4d6', // papel do cigarro
   R: '#c1470f', // brasa apagando
   Y: '#ffcf5c', // brasa acesa (tragada)
+  J: '#6b4423', // café
+  X: '#f2efe7', // caneca (cerâmica)
+  N: '#9aa3b5', // garrafa térmica
 }
 
 /* Cada plumagem tem três tons: peito (l), corpo (m), cabeça/asa (d). */
@@ -115,6 +118,9 @@ export const CABECA = {
   fumando: [0, 0],
   fumando2: [0, 0],
   fumandoTraga: [0, 0],
+  cafeSegurando: [0, 0],
+  cafeBebendo: [0, 0],
+  cafeEnchendo: [0, 0],
 }
 
 export const CENARIO = {
@@ -431,6 +437,95 @@ export const SPRITES = {
     '.......KKKKK............',
     '........O..O............',
     '.......OO..OO...........',
+  ],
+
+  // Café, segurando a caneca: mesmo lugar do cigarro (não dá pra fumar E
+  // tomar café ao mesmo tempo). Topo com o café (J), base de cerâmica (X).
+  // O vapor vem de partícula (mesmo sistema da fumaça do cigarro).
+  cafeSegurando: [
+    '........................',
+    '.......C.C..............',
+    '......KCCCK.............',
+    '.....KDDDDDK............',
+    '....KDDWWWDDK...........',
+    'JJBBKDWWEWDDK...........',
+    'XXBBKDDWWWDDK...........',
+    '....KDDDDDDDK...........',
+    '....KDDDDDDDDKK....KKK..',
+    '....KLPPDDDDDDDKK.KDDK..',
+    '...KLLPPPDDDDDDDDKDDK...',
+    '...KLLPPAAAAADDDDDDK....',
+    '...KLLPAAKAAAADDDDK.....',
+    '...KLLPAAAAKAAADDK......',
+    '...KLLLPAAAAAADDK.......',
+    '....KLLLPPAADDDK........',
+    '.....KKLLLPPKKK.........',
+    '.......KKKKK............',
+    '........O..O............',
+    '.......OO..OO...........',
+  ],
+
+  // Bebendo: caneca sobe até o bico, olho semicerrado de satisfação — igual
+  // truque da tragada do cigarro.
+  cafeBebendo: [
+    '........................',
+    '.......C.C..............',
+    '......KCCCK.............',
+    '.....KDDDDDK............',
+    'XX..KDDWWWDDK...........',
+    'JJBBKDWWKWDDK...........',
+    '..BBKDDWWWDDK...........',
+    '....KDDDDDDDK...........',
+    '....KDDDDDDDDKK....KKK..',
+    '....KLPPDDDDDDDKK.KDDK..',
+    '...KLLPPPDDDDDDDDKDDK...',
+    '...KLLPPAAAAADDDDDDK....',
+    '...KLLPAAKAAAADDDDK.....',
+    '...KLLPAAAAKAAADDK......',
+    '...KLLLPAAAAAADDK.......',
+    '....KLLLPPAADDDK........',
+    '.....KKLLLPPKKK.........',
+    '.......KKKKK............',
+    '........O..O............',
+    '.......OO..OO...........',
+  ],
+
+  // Enchendo: mesma caneca parada, mas um pingo (J) sobe até a borda do
+  // quadro — é onde a garrafa térmica (desenhada à parte, por cima) encosta
+  // pra completar o jato caindo.
+  cafeEnchendo: [
+    'J.......................',
+    '.......C.C..............',
+    '......KCCCK.............',
+    '.....KDDDDDK............',
+    '....KDDWWWDDK...........',
+    'JJBBKDWWEWDDK...........',
+    'XXBBKDDWWWDDK...........',
+    '....KDDDDDDDK...........',
+    '....KDDDDDDDDKK....KKK..',
+    '....KLPPDDDDDDDKK.KDDK..',
+    '...KLLPPPDDDDDDDDKDDK...',
+    '...KLLPPAAAAADDDDDDK....',
+    '...KLLPAAKAAAADDDDK.....',
+    '...KLLPAAAAKAAADDK......',
+    '...KLLLPAAAAAADDK.......',
+    '....KLLLPPAADDDK........',
+    '.....KKLLLPPKKK.........',
+    '.......KKKKK............',
+    '........O..O............',
+    '.......OO..OO...........',
+  ],
+
+  // Garrafa térmica: prop desenhado à parte (como o notebook do foco),
+  // só aparece durante a fase de reabastecer o café.
+  termica: [
+    '.KKK.',
+    'KNNNK',
+    'KNNNK',
+    'KNNNK',
+    'KNNNK',
+    'KNNNK',
+    'K...K',
   ],
 
   monitor: [

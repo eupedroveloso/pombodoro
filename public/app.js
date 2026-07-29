@@ -182,7 +182,8 @@ function sairDaPraca() {
   // trocar de tela, senão o próprio pombo não vê a própria morte.
   setTimeout(() => {
     ultimo = null
-    ultimaFalaTs = null
+    ultimoMuralTs = null
+    $('flutuantes').innerHTML = ''
     radioAtual = null
     minhasTarefas = []
     tarefaAtualId = null
@@ -358,13 +359,16 @@ for (const id of ['slFoco', 'slPausa']) {
 }
 
 function montarPlacar(s) {
-  $('placar').innerHTML = s.jogadores
+  // O placar virou só o top 3, em linha embaixo do cronômetro — o resto
+  // do time cada um acompanha pelo próprio indicador no rodapé.
+  const top3 = [...s.jogadores].sort((a, b) => b.migalhas - a.migalhas).slice(0, 3)
+  $('placarTop3').innerHTML = top3
     .map(
-      (j) => `<li class="${j.online ? '' : 'offline'} ${j.id === eu.id ? 'eu' : ''}">
+      (j, i) => `<span class="chip-placar ${j.id === eu.id ? 'eu' : ''}">
+        <span class="pos">${i + 1}º</span>
         <i class="ponto" style="background:${CRISTAS[j.crista % CRISTAS.length]}"></i>
-        <span class="nome">${escapar(j.nome)}</span>
-        <span class="pts">${j.migalhas} 🍞</span>
-      </li>`
+        <b>${escapar(j.nome)}</b> ${j.migalhas}🍞
+      </span>`
     )
     .join('')
 
@@ -373,30 +377,40 @@ function montarPlacar(s) {
   $('minhasMigalhas').textContent = eu2 ? eu2.migalhas : 0
 }
 
-let ultimaFalaTs = null // null = primeira carga; não replicar balões antigos
+let ultimoMuralTs = null // null = primeira carga; não replica histórico antigo
 
+/* Sem linha do tempo: cada mensagem nova (sistema, recado ou fala) nasce
+   flutuando por cima do chat central e some sozinha depois de alguns
+   segundos. Fala também sobe como balão sobre a cabeça de quem falou. */
 function montarMural(s) {
-  const el = $('mural')
-  const grudado = el.scrollHeight - el.scrollTop - el.clientHeight < 40
-  el.innerHTML = s.mural
-    .map((m) => {
-      if (m.tipo === 'sistema') return `<div class="sistema">${escapar(m.texto)}</div>`
-      if (m.tipo === 'recado') return `<div class="recado"><b>${escapar(m.de)}</b> fez: ${escapar(m.texto)}</div>`
-      return `<div><b>${escapar(m.de)}</b> ${escapar(m.texto)}</div>`
-    })
-    .join('')
-  if (grudado) el.scrollTop = el.scrollHeight
-
-  // Falas novas viram balão sobre o pombo de quem falou.
-  const falas = s.mural.filter((m) => m.tipo === 'fala' && m.deId)
-  if (ultimaFalaTs === null) {
-    ultimaFalaTs = falas.length ? falas[falas.length - 1].ts : 0
-  } else {
-    for (const m of falas) {
-      if (m.ts > ultimaFalaTs) dispararFala(m.deId, m.texto)
-    }
-    if (falas.length) ultimaFalaTs = Math.max(ultimaFalaTs, falas[falas.length - 1].ts)
+  if (ultimoMuralTs === null) {
+    ultimoMuralTs = s.mural.length ? s.mural[s.mural.length - 1].ts : 0
+    return
   }
+  for (const m of s.mural) {
+    if (m.ts <= ultimoMuralTs) continue
+    flutuarMensagem(m)
+    if (m.tipo === 'fala' && m.deId) dispararFala(m.deId, m.texto)
+  }
+  if (s.mural.length) ultimoMuralTs = Math.max(ultimoMuralTs, s.mural[s.mural.length - 1].ts)
+}
+
+const MAX_FLUTUANTES = 4
+
+function flutuarMensagem(m) {
+  const el = document.createElement('div')
+  el.className = `flutuante ${m.tipo}`
+  el.innerHTML =
+    m.tipo === 'sistema'
+      ? escapar(m.texto)
+      : m.tipo === 'recado'
+        ? `<b>${escapar(m.de)}</b> fez: ${escapar(m.texto)}`
+        : `<b>${escapar(m.de)}</b> ${escapar(m.texto)}`
+  const caixa = $('flutuantes')
+  caixa.append(el)
+  while (caixa.children.length > MAX_FLUTUANTES) caixa.firstElementChild.remove()
+  setTimeout(() => el.classList.add('sumindo'), 4200)
+  setTimeout(() => el.remove(), 5200)
 }
 
 function aplicarTravaDoMural(s) {
@@ -422,14 +436,15 @@ function ordenarTarefas(lista) {
 function tarefaHtml(t) {
   const botoes = []
   if (t.status === 'concluida') {
-    botoes.push(`<button type="button" data-ac="reabrir" title="Reabrir">↺ Reabrir</button>`)
+    botoes.push(`<button type="button" data-ac="reabrir" title="Reabrir">↺</button>`)
   } else {
-    if (t.id !== tarefaAtualId) botoes.push(`<button type="button" data-ac="selecionar" title="Usar nesse ciclo">▶ Usar</button>`)
-    botoes.push(`<button type="button" data-ac="concluir" title="Marcar concluída">✔ Concluir</button>`)
+    if (t.id !== tarefaAtualId) botoes.push(`<button type="button" data-ac="selecionar" title="Usar nesse ciclo">▶</button>`)
+    botoes.push(`<button type="button" data-ac="concluir" title="Marcar concluída">✔</button>`)
   }
-  botoes.push(`<button type="button" data-ac="duplicar" title="Duplicar">⧉ Duplicar</button>`)
-  botoes.push(`<button type="button" data-ac="excluir" title="Excluir">✕ Excluir</button>`)
-  // Tag e ações em linhas próprias, abaixo do nome — botões grandes, fáceis de acertar.
+  botoes.push(`<button type="button" data-ac="duplicar" title="Duplicar">⧉</button>`)
+  botoes.push(`<button type="button" data-ac="excluir" title="Excluir">✕</button>`)
+  // Tag e ações lado a lado, numa linha só abaixo do nome — só ícone (grande)
+  // + tooltip, pra caber os 3-4 botões sem quebrar linha.
   return `<li class="tarefa status-${t.status}${t.id === tarefaAtualId ? ' atual' : ''}" data-id="${t.id}">
     <span class="txt" data-editar="1" title="Clique pra editar">${escapar(t.texto)}</span>
     <span class="tag">${TAG_TAREFA[t.status]}</span>
@@ -581,6 +596,7 @@ function iniciarRadio() {
           if (e.data === YT.PlayerState.ENDED && faixa) {
             socket.emit('radio', { acao: 'terminou', videoId: faixa.videoId })
           }
+          registrarDuracao()
         },
         onError: () => {
           const faixa = radioAtual?.fila[radioAtual.indice]
@@ -613,8 +629,32 @@ function sincronizarRadio() {
   const st = player.getPlayerState?.()
   if (radioAtual.tocando && st !== YT.PlayerState.PLAYING && st !== YT.PlayerState.BUFFERING) player.playVideo()
   if (!radioAtual.tocando && st === YT.PlayerState.PLAYING) player.pauseVideo()
+  registrarDuracao()
 }
 setInterval(sincronizarRadio, 7000)
+
+// Duração não vem do oEmbed (precisaria de chave da Data API) — então pega
+// emprestado do próprio player assim que a faixa carrega. Só cobre o que já
+// tocou nesta sessão; o resto mostra "--:--" até chegar a vez dele.
+const duracoes = new Map() // videoId -> segundos
+
+function registrarDuracao() {
+  if (!playerPronto || !radioAtual) return
+  const faixa = radioAtual.fila[radioAtual.indice]
+  if (!faixa) return
+  const dur = Math.round(player.getDuration?.() || 0)
+  if (dur > 0 && duracoes.get(faixa.videoId) !== dur) {
+    duracoes.set(faixa.videoId, dur)
+    montarRadio(radioAtual)
+  }
+}
+
+function formatarDuracao(seg) {
+  if (!Number.isFinite(seg) || seg <= 0) return '--:--'
+  const m = Math.floor(seg / 60)
+  const s = Math.floor(seg % 60)
+  return `${m}:${String(s).padStart(2, '0')}`
+}
 
 function montarRadio(r) {
   const faixa = r.fila[r.indice]
@@ -623,13 +663,17 @@ function montarRadio(r) {
     ? `<b>${escapar(faixa.titulo)}</b> · pedida por ${escapar(faixa.de)}`
     : 'Fila vazia — cola um link aí 👇'
   $('fila').innerHTML = r.fila
-    .map(
-      (f, i) => `<li class="${i === r.indice ? 'atual' : i < r.indice ? 'passada' : ''}">
-        <span class="t" data-i="${i}" title="Tocar esta">${escapar(f.titulo)}</span>
-        <small>${escapar(f.de)}</small>
+    .map((f, i) => {
+      const dur = duracoes.get(f.videoId)
+      return `<li class="${i === r.indice ? 'atual' : i < r.indice ? 'passada' : ''}">
+        ${f.imagem ? `<img src="${f.imagem}" alt="" loading="lazy">` : ''}
+        <div class="info">
+          <span class="t" data-i="${i}" title="Tocar esta">${escapar(f.titulo)}</span>
+          <span class="meta"><span>${escapar(f.de)}</span> <span class="dur">${formatarDuracao(dur)}</span></span>
+        </div>
         <button type="button" data-rm="${i}" title="Tirar da fila">✕</button>
       </li>`
-    )
+    })
     .join('')
 }
 

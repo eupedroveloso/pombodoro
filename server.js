@@ -231,7 +231,7 @@ function estado(sala) {
     // Sangue some depois de ~20 segundos.
     manchas: sala.manchas.filter((m) => Date.now() - m.ts < 20000),
     radio: {
-      fila: sala.radio.fila.map((f) => ({ videoId: f.videoId, titulo: f.titulo, de: f.de })),
+      fila: sala.radio.fila.map((f) => ({ videoId: f.videoId, titulo: f.titulo, de: f.de, imagem: f.imagem })),
       indice: sala.radio.indice,
       tocando: sala.radio.tocando,
       posSec: posRadio(sala.radio),
@@ -464,7 +464,11 @@ io.on('connection', (socket) => {
     if (!sala || !jogador) return
     if (emFoco(sala)) return // trabalhando não se anda nem se soca
 
-    const acao = ['anda', 'bica', 'bica2', 'pula', 'soco', 'coco', 'danca', 'dorme', 'fuma'].includes(payload.acao) ? payload.acao : 'anda'
+    const acao = ['anda', 'bica', 'bica2', 'pula', 'soco', 'coco', 'danca', 'dorme', 'fuma', 'fuma-fim', 'cafe', 'cafe-fim'].includes(
+      payload.acao
+    )
+      ? payload.acao
+      : 'anda'
     const x = Number(payload.x)
     if (Number.isFinite(x)) jogador.posX = Math.max(0, Math.min(640, x))
     jogador.posDir = payload.dir === 1 ? 1 : -1
@@ -533,19 +537,23 @@ io.on('connection', (socket) => {
       if (!id) return socket.emit('recusado', 'Não entendi esse link do YouTube 🤔')
       if (r.fila.length >= 50) return socket.emit('recusado', 'A fila está lotada (50 músicas)')
       // Valida ANTES de aceitar: vídeo morto/embed bloqueado nem entra.
-      let titulo
+      // O oEmbed também traz a miniatura de graça, sem precisar de chave de API
+      // (duração não vem por aqui — a Data API exigiria uma chave que não temos).
+      let titulo, imagem
       try {
         const resp = await fetch(
           `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`,
           { signal: AbortSignal.timeout(6000) }
         )
         if (!resp.ok) throw new Error(`oembed ${resp.status}`)
-        titulo = (await resp.json()).title
+        const dados = await resp.json()
+        titulo = dados.title
+        imagem = dados.thumbnail_url
       } catch {
         return socket.emit('recusado', 'Esse vídeo não rolou — pode não existir ou não tocar fora do YouTube')
       }
       const estavaOcioso = !r.fila[r.indice]
-      r.fila.push({ videoId: id, titulo, de: jogador.nome, deId: jogador.id })
+      r.fila.push({ videoId: id, titulo, de: jogador.nome, deId: jogador.id, imagem })
       anunciar(sala, `${jogador.nome} adicionou "${titulo}" na fila 📻`)
       if (estavaOcioso) tocarFaixa(r, r.fila.length - 1)
     } else if (acao === 'play') {

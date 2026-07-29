@@ -65,7 +65,10 @@
       <span id="rotuloFase" class="pill">—</span>
       <small id="proxima"></small>
     </div>
-    <strong id="relogio" class="relogio-grande">--:--</strong>
+    <div class="relogio-bloco">
+      <strong id="relogio" class="relogio-grande">--:--</strong>
+      <div id="placarTop3" class="placar-top3"></div>
+    </div>
     <div class="acoes">
       <button id="btnPlay" title="Continuar">▶</button>
       <button id="btnReset" class="ghost" title="Zerar">↺</button>
@@ -110,14 +113,12 @@
         <div id="ytwrap"><div id="ytplayer"></div></div>
         <div id="radioInfo" class="radio-info">Fila vazia — cola um link aí 👇</div>
         <div class="radio-controles">
-          <div class="grupo" title="Controla a música pra sala inteira">
-            <small>sala</small>
+          <div class="grupo transporte" title="Controla a música pra sala inteira">
             <button id="rPrev" class="ghost" title="Anterior (sala)">⏮</button>
             <button id="rPlay" class="ghost" title="Tocar / pausar (sala)">▶</button>
             <button id="rNext" class="ghost" title="Próxima (sala)">⏭</button>
           </div>
-          <div class="grupo" title="Só afeta o SEU som — cada pombo tem o seu">
-            <small>você</small>
+          <div class="grupo volume" title="Só afeta o SEU som — cada pombo tem o seu">
             <button id="btnSom" class="ghost" title="Mudo (só você)">🔇</button>
             <input id="slVol" type="range" min="0" max="100" value="60" title="Volume (só você)">
           </div>
@@ -126,15 +127,10 @@
           <input id="inputRadio" placeholder="Link do YouTube…" autocomplete="off">
           <button title="Adicionar à fila">+</button>
         </form>
-        <ol id="fila"></ol>
-      </div>
-      <div class="bloco">
-        <h2>Placar 🍞</h2>
-        <ol id="placar"></ol>
       </div>
       <div class="bloco cresce">
-        <h2>Linha do tempo 🕒</h2>
-        <div id="mural"></div>
+        <h2>Fila de reprodução 🎶</h2>
+        <ol id="fila"></ol>
       </div>
     </aside>
   </main>
@@ -144,6 +140,7 @@
       <span id="migalhasIndicador" class="migalhas-indicador" title="Suas migalhas">🍞 <b id="minhasMigalhas">0</b></span>
     </div>
     <div class="rodape-centro">
+      <div id="flutuantes"></div>
       <div id="emotes"></div>
       <form id="formMural">
         <input id="inputMural" maxlength="200" autocomplete="off">

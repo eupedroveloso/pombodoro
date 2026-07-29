@@ -28,6 +28,7 @@ const OLHO = {
   parado: [7, 5], passo: [7, 6], sentado: [7, 5], sentado2: [7, 5], soco: [7, 5],
   vooCima: [7, 5], vooBaixo: [7, 5],
   fumando: [7, 5], fumando2: [7, 5], fumandoTraga: [7, 5],
+  cafeSegurando: [7, 5], cafeBebendo: [7, 5], cafeEnchendo: [7, 5],
 }
 
 let cv, ctx, off, offCtx
@@ -41,7 +42,7 @@ let t = 0
 
 /* controle do próprio pombo */
 const teclas = new Set()
-const TECLAS_JOGO = new Set(['a', 'd', 'w', 's', 'e', ' ', '1', '2', '3', '4', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown'])
+const TECLAS_JOGO = new Set(['a', 'd', 'w', 's', 'e', ' ', '1', '2', '3', '4', '5', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown'])
 let ultimoCoco = 0
 let aoMover = null // callback pro app.js mandar a posição pro servidor
 let ultimoEnvio = 0
@@ -95,6 +96,7 @@ export function iniciarCena(canvas, cbMover) {
       v.dancando = false
       v.bicandoLoop = false
       v.fumando = false
+      v.cafe = false
       // Em cima de algo? S desce (fura a plataforma). No chão, S bica.
       if (v.vy === 0 && v.alt < -0.5) {
         v.alt += 0.6 // passa pra baixo do topo; a física acha a próxima superfície
@@ -117,6 +119,7 @@ export function iniciarCena(canvas, cbMover) {
       v.dormindo = false
       v.bicandoLoop = false
       v.fumando = false
+      v.cafe = false
       v.dancando = liga
       aoMover?.({ x: Math.round(v.x), dir: v.dir, acao: liga ? 'danca' : 'anda' })
     }
@@ -125,6 +128,7 @@ export function iniciarCena(canvas, cbMover) {
       v.dormindo = false
       v.dancando = false
       v.fumando = false
+      v.cafe = false
       v.bicandoLoop = liga
       aoMover?.({ x: Math.round(v.x), dir: v.dir, acao: liga ? 'bica2' : 'anda' })
     }
@@ -133,20 +137,34 @@ export function iniciarCena(canvas, cbMover) {
       v.dancando = false
       v.bicandoLoop = false
       v.fumando = false
+      v.cafe = false
       v.dormindo = liga
       if (liga) v.dormiuEm = performance.now()
       aoMover?.({ x: Math.round(v.x), dir: v.dir, acao: liga ? 'dorme' : 'anda' })
     }
-    // 4 é o cigarro: mesmo toggle infinito dos outros loops. Ligar já bota
-    // uma tragada na hora (fumaFase começa em 'idle' e o ciclo cuida do resto).
+    // 4 (cigarro) e 5 (café) são loops que SOBREVIVEM a andar/voar — só
+    // desligam apertando a tecla de novo. Por isso usam ações próprias de
+    // início/fim (fuma/fuma-fim, cafe/cafe-fim) em vez de reaproveitar
+    // 'anda': o 'anda' comum (emitido a cada passo) não pode apagar o estado.
     if (k === '4') {
       const liga = !v.fumando
       v.dormindo = false
       v.dancando = false
       v.bicandoLoop = false
+      v.cafe = false
       v.fumando = liga
       if (liga) v.fumaInicioEm = performance.now()
-      aoMover?.({ x: Math.round(v.x), dir: v.dir, acao: liga ? 'fuma' : 'anda' })
+      aoMover?.({ x: Math.round(v.x), dir: v.dir, acao: liga ? 'fuma' : 'fuma-fim' })
+    }
+    if (k === '5') {
+      const liga = !v.cafe
+      v.dormindo = false
+      v.dancando = false
+      v.bicandoLoop = false
+      v.fumando = false
+      v.cafe = liga
+      if (liga) v.cafeInicioEm = performance.now()
+      aoMover?.({ x: Math.round(v.x), dir: v.dir, acao: liga ? 'cafe' : 'cafe-fim' })
     }
   })
   addEventListener('keyup', (e) => teclas.delete(e.key.toLowerCase()))
@@ -173,15 +191,24 @@ export function aplicarPosRemota({ id, x, dir, alt, acao }) {
     v.dormindo = true
     v.dormiuEm = performance.now()
   }
+  // Cigarro e café têm início/fim próprios (não usam 'anda') justamente pra
+  // sobreviver ao andar/voar do dono — remoto precisa da mesma regra.
   if (acao === 'fuma') {
     v.fumando = true
     v.fumaInicioEm = performance.now()
+    v.cafe = false
   }
+  if (acao === 'fuma-fim') v.fumando = false
+  if (acao === 'cafe') {
+    v.cafe = true
+    v.cafeInicioEm = performance.now()
+    v.fumando = false
+  }
+  if (acao === 'cafe-fim') v.cafe = false
   if (acao === 'anda') {
     v.dormindo = false
     v.dancando = false
     v.bicandoLoop = false
-    v.fumando = false
   }
 }
 
@@ -299,9 +326,9 @@ function animarParticulas(agora) {
   }
 }
 
-/* Fumaça do cigarro: fiapos finos entre tragadas + uma baforada maior
-   (mais partículas, mais dispersão) toda vez que solta o ar. Sobe, se
-   espalha lateralmente e desmancha — puramente cosmético e local. */
+/* Fumaça: fiapos finos + baforada maior (mais partículas, mais dispersão)
+   toda vez que solta o ar. Sobe, se espalha lateralmente e desmancha —
+   puramente cosmético e local. Compartilhada entre cigarro e vapor de café. */
 const fumaca = []
 
 function emitirFumaca(x, y, baforada) {
@@ -437,6 +464,9 @@ function vistaDe(j, i) {
       fumaInicioEm: 0,
       fumaFase: 'idle',
       fumaUltimoWisp: 0,
+      cafe: false,
+      cafeInicioEm: 0,
+      cafeUltimoWisp: 0,
       fala: null,
       falaAte: 0,
       sujoAte: 0,
@@ -527,18 +557,9 @@ function quadro(agora) {
         } else {
           sprite = 'caido' // estatelado de costas até levantar
         }
-      } else if (v.noAr) sprite = Math.floor(agora / 90) % 2 ? 'vooCima' : 'vooBaixo'
-      else if (v.bicandoLoop || agora < v.bicandoAte) sprite = Math.floor(agora / 130) % 2 ? 'bicando2' : 'bicando'
-      else if (v.dormindo) {
-        sprite = 'dormindo'
-        const desde = agora - (v.dormiuEm || agora)
-        if (desde > 2500 && desde % 4200 < 260) x += Math.floor(agora / 50) % 2 ? 1 : -1
-      } else if (v.dancando) {
-        // Dança: vira de lado no ritmo, com pulinho alternado. Loop infinito.
-        sprite = Math.floor(agora / 160) % 2 ? 'passo' : 'parado'
-        espelhar = Math.floor(agora / 320) % 2 === 0
-        y -= Math.floor(agora / 160) % 2 ? 2 : 0
       } else if (v.fumando) {
+        // Cigarro e café ficam ANTES do voo/passo de propósito: precisam
+        // continuar de pé mesmo andando ou voando — só a tecla desliga.
         // Ciclo de ~3.2s: a maior parte é baforada tranquila (brasa piscando),
         // com uma tragada funda no fim que solta a nuvem de fumaça.
         const desde = agora - (v.fumaInicioEm || agora)
@@ -557,6 +578,35 @@ function quadro(agora) {
           v.fumaUltimoWisp = agora
           emitirFumaca(pontaX, pontaY, false)
         }
+      } else if (v.cafe) {
+        // Ciclo de ~3.6s: maioria segurando a caneca (vapor leve); a cada
+        // 3 ciclos, em vez de um golinho rápido, reabastece com a térmica.
+        const CICLO_CAFE = 3600
+        const desde = agora - (v.cafeInicioEm || agora)
+        const numCiclo = Math.floor(desde / CICLO_CAFE)
+        const noCiclo = desde % CICLO_CAFE
+        const reabastecendo = numCiclo % 3 === 2
+        const duracaoAcao = reabastecendo ? 900 : 480
+        const emAcao = noCiclo < duracaoAcao
+        sprite = emAcao ? (reabastecendo ? 'cafeEnchendo' : 'cafeBebendo') : 'cafeSegurando'
+        const canecaX = x + (espelhar ? SPRITE - 1 : 1)
+        const canecaY = y - 15
+        if (reabastecendo && emAcao) desenharTermica(canecaX, canecaY, espelhar)
+        if (!emAcao && agora - v.cafeUltimoWisp > 500) {
+          v.cafeUltimoWisp = agora
+          emitirFumaca(canecaX, canecaY, false) // vapor do café — mesmo sistema da fumaça
+        }
+      } else if (v.noAr) sprite = Math.floor(agora / 90) % 2 ? 'vooCima' : 'vooBaixo'
+      else if (v.bicandoLoop || agora < v.bicandoAte) sprite = Math.floor(agora / 130) % 2 ? 'bicando2' : 'bicando'
+      else if (v.dormindo) {
+        sprite = 'dormindo'
+        const desde = agora - (v.dormiuEm || agora)
+        if (desde > 2500 && desde % 4200 < 260) x += Math.floor(agora / 50) % 2 ? 1 : -1
+      } else if (v.dancando) {
+        // Dança: vira de lado no ritmo, com pulinho alternado. Loop infinito.
+        sprite = Math.floor(agora / 160) % 2 ? 'passo' : 'parado'
+        espelhar = Math.floor(agora / 320) % 2 === 0
+        y -= Math.floor(agora / 160) % 2 ? 2 : 0
       } else if (v.andando) sprite = Math.floor(agora / 180) % 2 ? 'passo' : 'parado'
       else sprite = 'parado'
     }
@@ -682,12 +732,12 @@ function moverLocal(v, agora) {
   if (teclas.has('w') || teclas.has('arrowup')) {
     v.vy = Math.max(v.vy - 0.5, -1.7)
   }
-  // Mover-se acorda e interrompe qualquer loop de animação.
+  // Mover-se acorda e interrompe a maioria dos loops — MENOS cigarro/café,
+  // que continuam pitados enquanto anda ou voa (só a própria tecla desliga).
   if (v.andando || v.vy !== 0) {
     v.dormindo = false
     v.dancando = false
     v.bicandoLoop = false
-    v.fumando = false
   }
   // Espaço segurado = JATO de cocô (~12/s; o servidor modera o mural).
   if (teclas.has(' ') && agora - ultimoCoco > 85) {
@@ -847,6 +897,14 @@ function desenharSprite(nome, x, y, corpo, crista, acessorio, espelhar, piscando
 function desenharNotebook(x, y, quadro) {
   const img = spriteCanvas(quadro ? 'notebook2' : 'notebook', 0, 0)
   offCtx.drawImage(img, Math.round(Math.max(x, -8)), Math.round(y) - img.height)
+}
+
+/** Garrafa térmica: só aparece no instante de reabastecer a caneca de café. */
+function desenharTermica(x, y, espelhar) {
+  const img = spriteCanvas('termica', 0, 0)
+  const px = Math.round(x) - (espelhar ? img.width - 1 : 1)
+  const py = Math.round(y) - img.height - 3
+  offCtx.drawImage(img, px, py)
 }
 
 /** Respingos brancos no pombo atingido: cabeça, costas e asa. */

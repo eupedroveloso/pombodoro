@@ -114,8 +114,17 @@ header {
 }
 .fase { display: flex; align-items: baseline; gap: 10px; justify-self: start; }
 .fase small { color: #8686a0; font-size: 11px; }
-.relogio-grande { justify-self: center; font-size: 40px; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.relogio-bloco { justify-self: center; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.relogio-grande { font-size: 40px; font-variant-numeric: tabular-nums; letter-spacing: .02em; }
 .acoes { display: flex; gap: 8px; align-items: center; justify-self: end; }
+
+/* Top 3 do placar, em linha, embaixo do cronômetro. */
+.placar-top3 { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.placar-top3 .chip-placar { font-size: 11px; color: #b9b9cc; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.placar-top3 .chip-placar .pos { color: #6f6f88; }
+.placar-top3 .chip-placar b { color: var(--papel); }
+.placar-top3 .chip-placar.eu b { color: var(--pausa); }
+.placar-top3 .ponto { width: 6px; height: 6px; border-radius: 2px; flex: none; }
 
 .pill {
   font-size: 10px; font-weight: 700; letter-spacing: .1em;
@@ -208,42 +217,37 @@ aside.recolhida { transform: translateX(100%); }
 #ytwrap iframe { width: 100%; height: 100%; display: block; }
 .radio-info { font-size: 11px; color: #b9b9cc; line-height: 1.4; margin-bottom: 6px; min-height: 15px; }
 .radio-info b { color: var(--papel); }
-/* duas linhas: transporte da sala em cima, volume pessoal embaixo */
-.radio-controles { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
-.radio-controles .grupo { display: flex; align-items: center; gap: 6px; }
-.radio-controles .grupo small {
-  font-family: 'Press Start 2P', ui-monospace, monospace;
-  font-size: 6px; color: #77778e; text-transform: uppercase;
-  width: 30px; flex: none;
-}
-.radio-controles button { padding: 6px 10px; font-size: 13px; line-height: 1; }
+/* Duas linhas cheias: transporte da sala em cima, volume pessoal embaixo —
+   cada uma ocupando a largura toda, botões grandes e fáceis de acertar. */
+.radio-controles { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.radio-controles .grupo { display: flex; align-items: stretch; gap: 6px; }
+.radio-controles .grupo.transporte button { flex: 1; padding: 12px 6px; font-size: 17px; line-height: 1; }
+.radio-controles .grupo.volume button { flex: none; width: 42px; padding: 0; font-size: 16px; }
 #slVol { flex: 1; width: auto; min-width: 0; accent-color: var(--foco); padding: 0; }
 #formRadio { display: flex; gap: 6px; margin-bottom: 8px; }
 #formRadio input { flex: 1; padding: 7px 10px; font-size: 11px; }
 #formRadio button { padding: 7px 12px; }
-#fila { list-style: none; max-height: 96px; overflow: auto; display: flex; flex-direction: column; gap: 3px; }
-#fila li { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #b9b9cc; }
-#fila li .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+
+/* Fila: card com miniatura, título e duração. */
+#fila { list-style: none; flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+#fila li {
+  display: flex; align-items: center; gap: 8px;
+  background: #ffffff0a; padding: 5px; font-size: 11px; color: #b9b9cc;
+}
+#fila li img {
+  width: 48px; height: 36px; object-fit: cover; flex: none;
+  background: #000; image-rendering: auto;
+}
+#fila li .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+#fila li .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 #fila li .t:hover { color: var(--papel); }
+#fila li .meta { display: flex; gap: 6px; align-items: center; color: #77778e; font-size: 10px; }
+#fila li .dur { font-variant-numeric: tabular-nums; flex: none; }
+#fila li.atual { background: #ffffff16; }
 #fila li.atual .t { color: var(--papel); font-weight: 700; }
-#fila li.atual::before { content: '▸'; color: var(--pausa); }
 #fila li.passada { opacity: .45; }
-#fila li small { color: #77778e; flex: none; }
-#fila li button { background: none; padding: 0 4px; color: #77778e; font-size: 11px; }
+#fila li button { background: none; padding: 0 4px; color: #77778e; font-size: 13px; align-self: flex-start; }
 #fila li button:hover { color: var(--foco); }
-
-#placar { list-style: none; display: flex; flex-direction: column; gap: 5px; max-height: 120px; overflow: auto; }
-#placar li { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-#placar .ponto { width: 8px; height: 8px; border-radius: 2px; flex: none; }
-#placar .nome { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#placar li.offline { opacity: .42; }
-#placar li.eu .nome { font-weight: 700; }
-#placar .pts { color: #d8d8e8; font-variant-numeric: tabular-nums; }
-
-#mural { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 7px; font-size: 12px; line-height: 1.45; }
-#mural .sistema { color: #7c7c96; font-style: italic; }
-#mural .recado { background: #ffffff0d; border-left: 2px solid var(--foco); padding: 5px 8px; border-radius: 0 5px 5px 0; }
-#mural b { color: #fff; }
 
 /* ─── mural de tarefas ─────────────────────────────────────── */
 
@@ -285,10 +289,11 @@ aside.recolhida { transform: translateX(100%); }
 .tarefa.status-concluida { border-left-color: var(--pausa); opacity: .6; }
 .tarefa.status-concluida .txt { text-decoration: line-through; }
 .tarefa.status-concluida .tag { background: var(--pausa); }
-/* Botões de ação grandes, em grade abaixo do nome/tag — fáceis de acertar. */
-.tarefa .acoes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+/* Botões de ação lado a lado, numa linha só abaixo do nome/tag — grandes
+   o bastante pra acertar fácil mesmo sem rótulo, só ícone + tooltip. */
+.tarefa .acoes { display: flex; gap: 6px; }
 .tarefa .acoes button {
-  background: #ffffff14; padding: 9px 6px; font-size: 12px; line-height: 1.2;
+  flex: 1; background: #ffffff14; padding: 10px 4px; font-size: 15px; line-height: 1;
 }
 .tarefa .acoes button:hover { background: #ffffff28; }
 .tarefa.atual { outline: 2px solid var(--pausa); outline-offset: -2px; }
@@ -334,8 +339,36 @@ footer {
   display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px;
 }
 .rodape-esquerda { justify-self: start; }
-.rodape-centro { justify-self: center; display: flex; gap: 12px; align-items: center; }
+.rodape-centro { justify-self: center; position: relative; display: flex; gap: 12px; align-items: center; }
 .rodape-direita { justify-self: end; display: flex; gap: 8px; align-items: center; }
+
+/* Mensagens flutuantes: substituem a linha do tempo — nascem por cima do
+   chat central e somem sozinhas, aos poucos, depois de alguns segundos. */
+#flutuantes {
+  position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%);
+  margin-bottom: 10px;
+  width: max-content; max-width: min(70vw, 480px);
+  display: flex; flex-direction: column-reverse; gap: 6px;
+  align-items: center;
+  pointer-events: none;
+}
+.flutuante {
+  background: #1c1c2ae0;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: 1px solid var(--linha);
+  padding: 6px 12px;
+  font-size: 12px;
+  text-align: center;
+  max-width: 100%;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 1s ease, transform 1s ease;
+}
+.flutuante.sumindo { opacity: 0; transform: translateY(-10px); }
+.flutuante.sistema { color: #b9b9cc; font-style: italic; }
+.flutuante.recado { border-color: var(--foco); }
+.flutuante b { color: #fff; }
 .migalhas-indicador { font-size: 15px; white-space: nowrap; }
 .migalhas-indicador b { font-variant-numeric: tabular-nums; }
 #dica { color: #6f6f88; font-size: 10px; white-space: nowrap; }
@@ -557,11 +590,10 @@ input[type='range']::-webkit-slider-thumb {
 }
 
 /* tipografia de console nos textos de UI */
-.sub, .fase small, .radio-info, .sala-codigo, #placar li, #fila li {
+.sub, .fase small, .radio-info, .sala-codigo, .placar-top3, #fila li {
   font-family: ui-monospace, monospace;
 }
 .campo > span, .bloco h2 { color: #9a9ab8; }
-#mural { font-size: 11px; }
 
 /* mural de tarefas no visual de console */
 .tarefa-atual, .tarefa {
@@ -569,7 +601,14 @@ input[type='range']::-webkit-slider-thumb {
   box-shadow: inset 0 0 0 2px var(--bisel-luz);
   border-left: 0;
 }
-.tarefa .acoes button { font-family: inherit; font-size: 10px; box-shadow: inset -2px -2px 0 #00000066, inset 2px 2px 0 #ffffff2e; }
+.tarefa .acoes button { font-family: inherit; font-size: 14px; box-shadow: inset -2px -2px 0 #00000066, inset 2px 2px 0 #ffffff2e; }
+
+.flutuante {
+  background: var(--janela);
+  border: 0;
+  box-shadow: inset 0 0 0 2px var(--janela-escuro), inset 0 0 0 4px var(--bisel-luz), 4px 4px 0 #00000066;
+}
+.flutuante.recado { box-shadow: inset 0 0 0 2px var(--foco), inset 0 0 0 4px var(--bisel-luz), 4px 4px 0 #00000066; }
 .tarefa-atual .mini2 { font-family: inherit; font-size: 9px; box-shadow: inset -2px -2px 0 #00000066, inset 2px 2px 0 #ffffff2e; }
 .migalhas-indicador { text-shadow: 2px 2px 0 #10101880; }
 .modal-caixa {
