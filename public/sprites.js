@@ -17,6 +17,9 @@ export const PALETA = {
   M: '#232338',
   F: '#2b2b3a',
   T: '#4d5f85',
+  G: '#e9e4d6', // papel do cigarro
+  R: '#c1470f', // brasa apagando
+  Y: '#ffcf5c', // brasa acesa (tragada)
 }
 
 /* Cada plumagem tem três tons: peito (l), corpo (m), cabeça/asa (d). */
@@ -109,6 +112,9 @@ export const CABECA = {
   vooBaixo: [0, 0],
   bicando: [-1, 4],
   bicando2: [-3, 7],
+  fumando: [0, 0],
+  fumando2: [0, 0],
+  fumandoTraga: [0, 0],
 }
 
 export const CENARIO = {
@@ -350,6 +356,81 @@ export const SPRITES = {
     '...KKAAAAAKLPPDDK.......',
     '.....KKKKK.KKKKK........',
     '........O.O.............',
+  ],
+
+  // Fumando, brasa apagando: cigarro comprido saindo do bico (parado + G/R
+  // no lugar dos dois pixels antes do bico). Alterna com fumando2 (brasa
+  // acesa) pro cigarro "respirar" enquanto o pombo segura tragada nenhuma.
+  fumando: [
+    '........................',
+    '.......C.C..............',
+    '......KCCCK.............',
+    '.....KDDDDDK............',
+    '....KDDWWWDDK...........',
+    'RGBBKDWWEWDDK...........',
+    '..BBKDDWWWDDK...........',
+    '....KDDDDDDDK...........',
+    '....KDDDDDDDDKK....KKK..',
+    '....KLPPDDDDDDDKK.KDDK..',
+    '...KLLPPPDDDDDDDDKDDK...',
+    '...KLLPPAAAAADDDDDDK....',
+    '...KLLPAAKAAAADDDDK.....',
+    '...KLLPAAAAKAAADDK......',
+    '...KLLLPAAAAAADDK.......',
+    '....KLLLPPAADDDK........',
+    '.....KKLLLPPKKK.........',
+    '.......KKKKK............',
+    '........O..O............',
+    '.......OO..OO...........',
+  ],
+
+  // Fumando, brasa acesa: mesmo cigarro, ponta mais clara — o "pisca" da brasa.
+  fumando2: [
+    '........................',
+    '.......C.C..............',
+    '......KCCCK.............',
+    '.....KDDDDDK............',
+    '....KDDWWWDDK...........',
+    'YGBBKDWWEWDDK...........',
+    '..BBKDDWWWDDK...........',
+    '....KDDDDDDDK...........',
+    '....KDDDDDDDDKK....KKK..',
+    '....KLPPDDDDDDDKK.KDDK..',
+    '...KLLPPPDDDDDDDDKDDK...',
+    '...KLLPPAAAAADDDDDDK....',
+    '...KLLPAAKAAAADDDDK.....',
+    '...KLLPAAAAKAAADDK......',
+    '...KLLLPAAAAAADDK.......',
+    '....KLLLPPAADDDK........',
+    '.....KKLLLPPKKK.........',
+    '.......KKKKK............',
+    '........O..O............',
+    '.......OO..OO...........',
+  ],
+
+  // Tragando: brasa acesa com brilho subindo (glow acima do cigarro) e olho
+  // semicerrado — o instante antes de soltar a baforada.
+  fumandoTraga: [
+    '........................',
+    '.......C.C..............',
+    '......KCCCK.............',
+    '.....KDDDDDK............',
+    'Y...KDDWWWDDK...........',
+    'YGBBKDWWKWDDK...........',
+    '..BBKDDWWWDDK...........',
+    '....KDDDDDDDK...........',
+    '....KDDDDDDDDKK....KKK..',
+    '....KLPPDDDDDDDKK.KDDK..',
+    '...KLLPPPDDDDDDDDKDDK...',
+    '...KLLPPAAAAADDDDDDK....',
+    '...KLLPAAKAAAADDDDK.....',
+    '...KLLPAAAAKAAADDK......',
+    '...KLLLPAAAAAADDK.......',
+    '....KLLLPPAADDDK........',
+    '.....KKLLLPPKKK.........',
+    '.......KKKKK............',
+    '........O..O............',
+    '.......OO..OO...........',
   ],
 
   monitor: [

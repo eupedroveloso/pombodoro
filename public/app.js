@@ -2,7 +2,7 @@ import { CORPOS, CRISTAS, ACESSORIOS, spriteCanvas } from './sprites.js'
 import { iniciarCena, atualizarCena, dispararEmote, aplicarPosRemota, aplicarSoco, aplicarCoco, dispararFala, ajustarZoom, explodirPombo } from './cena.js'
 
 const $ = (id) => document.getElementById(id)
-const VERSAO_APP = 15
+const VERSAO_APP = 16
 const EMOTES = ['👍', '🔥', '☕', '😵', '🍞', '🎧']
 
 /* ─── identidade local ─────────────────────────────────────── */
@@ -144,8 +144,33 @@ function entrarNaPraca() {
     radioIniciado = true
     iniciarRadio()
   }
+  aplicarPreferenciaAbas()
   socket.emit('entrar', { codigo, ...eu })
 }
+
+/* ─── abas flutuantes (mural / controles) ─────────────────────
+   As duas sidebars flutuam por cima do palco (ver CSS: aside vira overlay
+   com fundo translúcido). Cada uma some pra fora da tela ao "esconder" —
+   a preferência fica salva por navegador, não por sala. */
+
+function alternarAba(el, chave, botao, iconeAberta) {
+  const fechada = el.classList.toggle('recolhida')
+  localStorage.setItem(`pombodoro-aba-${chave}`, fechada ? '0' : '1')
+  botao.title = fechada ? `Mostrar ${chave === 'tarefas' ? 'mural' : 'controles'}` : `Esconder ${chave === 'tarefas' ? 'mural' : 'controles'}`
+  botao.textContent = fechada ? iconeAberta : (chave === 'tarefas' ? '‹' : '›')
+}
+
+function aplicarPreferenciaAbas() {
+  const tarefasFechada = localStorage.getItem('pombodoro-aba-tarefas') === '0'
+  const controlesFechada = localStorage.getItem('pombodoro-aba-controles') === '0'
+  $('asideTarefas').classList.toggle('recolhida', tarefasFechada)
+  $('asideControles').classList.toggle('recolhida', controlesFechada)
+  $('toggleTarefas').textContent = tarefasFechada ? '📋' : '‹'
+  $('toggleControles').textContent = controlesFechada ? '🎛' : '›'
+}
+
+$('toggleTarefas').onclick = () => alternarAba($('asideTarefas'), 'tarefas', $('toggleTarefas'), '📋')
+$('toggleControles').onclick = () => alternarAba($('asideControles'), 'controles', $('toggleControles'), '🎛')
 
 /** Sair é diferente de fechar a aba: o servidor tira o pombo do desenho na
     hora e o sprint em andamento não conta. As migalhas continuam guardadas. */
@@ -159,6 +184,11 @@ function sairDaPraca() {
     ultimo = null
     ultimaFalaTs = null
     radioAtual = null
+    minhasTarefas = []
+    tarefaAtualId = null
+    tarefaParaConfirmar = null
+    $('modalTarefa').hidden = true
+    $('modalConfirmarTarefa').hidden = true
     if (playerPronto) player.pauseVideo?.()
     atualizarCena({ fase: 'foco', rodando: false, jogadores: [], manchas: [], meuId: eu.id })
     $('relogio').textContent = '--:--'
@@ -198,6 +228,12 @@ const socket = io()
 let ultimo = null
 let deltaRelogio = 0 // relógio do servidor − relógio daqui
 
+/* tarefas pessoais (mural) */
+let minhasTarefas = []
+let tarefaAtualId = null
+let pendenteSelecaoRapida = false // criou tarefa direto no modal do ciclo: seleciona assim que ela chegar
+let tarefaParaConfirmar = null // id da tarefa aguardando "concluí / ainda não" no fim do foco
+
 socket.on('connect', () => {
   if (naPraca) socket.emit('entrar', { codigo, ...eu })
 })
@@ -208,6 +244,7 @@ socket.on('estado', (s) => {
     location.reload()
     return
   }
+  const anterior = ultimo
   deltaRelogio = s.agoraServidor - Date.now()
   ultimo = s
   montarControles(s)
@@ -215,11 +252,34 @@ socket.on('estado', (s) => {
   montarMural(s)
   atualizarCena({ fase: s.fase, rodando: s.rodando, jogadores: s.jogadores, manchas: s.manchas, meuId: eu.id })
   aplicarTravaDoMural(s)
+  checarNovoCiclo(anterior, s)
   if (s.radio) {
     radioAtual = { ...s.radio, agora: s.agoraServidor }
     montarRadio(s.radio)
     sincronizarRadio()
   }
+})
+
+socket.on('minhasTarefas', ({ tarefas, atual }) => {
+  minhasTarefas = tarefas || []
+  tarefaAtualId = atual || null
+  // Tarefa criada na correria do modal do ciclo: assim que ela chega, usa ela.
+  if (pendenteSelecaoRapida && !tarefaAtualId) {
+    const nova = minhasTarefas[minhasTarefas.length - 1]
+    if (nova) socket.emit('tarefa', { acao: 'selecionar', id: nova.id })
+    pendenteSelecaoRapida = false
+  }
+  renderTarefas()
+  if (!$('modalTarefa').hidden) {
+    if (tarefaAtualId) fecharModalTarefa()
+    else renderModalTarefa()
+  }
+})
+
+socket.on('confirmarTarefa', ({ id, texto }) => {
+  tarefaParaConfirmar = id
+  $('confirmarTarefaTexto').textContent = texto
+  $('modalConfirmarTarefa').hidden = false
 })
 
 socket.on('emote', ({ id, emoji }) => dispararEmote(id, emoji))
@@ -307,6 +367,10 @@ function montarPlacar(s) {
       </li>`
     )
     .join('')
+
+  // Indicador do rodapé: sempre visível, mesmo com a aba de controles fechada.
+  const eu2 = s.jogadores.find((j) => j.id === eu.id)
+  $('minhasMigalhas').textContent = eu2 ? eu2.migalhas : 0
 }
 
 let ultimaFalaTs = null // null = primeira carga; não replicar balões antigos
@@ -340,6 +404,127 @@ function aplicarTravaDoMural(s) {
   $('inputMural').disabled = travado
   $('btnEnviar').disabled = travado
   $('inputMural').placeholder = travado ? 'O mural abre na pausa 🔒' : 'Piar alguma coisa…'
+}
+
+/* ─── mural de tarefas ─────────────────────────────────────── */
+/* Pessoal: cada pombo só vê e mexe nas próprias tarefas. O servidor manda
+   'minhasTarefas' direto pro socket do dono (não é broadcast de sala). */
+
+const TAG_TAREFA = { pendente: 'a fazer', em_andamento: 'em andamento', concluida: 'concluída' }
+
+// Mesmo status agrupado, mas preserva a ordem de criação dentro do grupo
+// (Array.sort é estável) — em andamento primeiro, concluída por último.
+function ordenarTarefas(lista) {
+  const ordem = { em_andamento: 0, pendente: 1, concluida: 2 }
+  return [...lista].sort((a, b) => ordem[a.status] - ordem[b.status])
+}
+
+function tarefaHtml(t) {
+  const botoes = []
+  if (t.status === 'concluida') {
+    botoes.push(`<button type="button" data-ac="reabrir" title="Reabrir">↺ Reabrir</button>`)
+  } else {
+    if (t.id !== tarefaAtualId) botoes.push(`<button type="button" data-ac="selecionar" title="Usar nesse ciclo">▶ Usar</button>`)
+    botoes.push(`<button type="button" data-ac="concluir" title="Marcar concluída">✔ Concluir</button>`)
+  }
+  botoes.push(`<button type="button" data-ac="duplicar" title="Duplicar">⧉ Duplicar</button>`)
+  botoes.push(`<button type="button" data-ac="excluir" title="Excluir">✕ Excluir</button>`)
+  // Tag e ações em linhas próprias, abaixo do nome — botões grandes, fáceis de acertar.
+  return `<li class="tarefa status-${t.status}${t.id === tarefaAtualId ? ' atual' : ''}" data-id="${t.id}">
+    <span class="txt" data-editar="1" title="Clique pra editar">${escapar(t.texto)}</span>
+    <span class="tag">${TAG_TAREFA[t.status]}</span>
+    <div class="acoes">${botoes.join('')}</div>
+  </li>`
+}
+
+function renderTarefas() {
+  const ordenada = ordenarTarefas(minhasTarefas)
+  $('listaTarefas').innerHTML = ordenada.length
+    ? ordenada.map(tarefaHtml).join('')
+    : '<li class="tarefa" style="cursor:default">Nenhuma tarefa ainda — adiciona aí em cima ☝</li>'
+
+  const atual = minhasTarefas.find((t) => t.id === tarefaAtualId)
+  $('tarefaAtualBox').hidden = !atual
+  if (atual) $('tarefaAtualTexto').textContent = atual.texto
+}
+
+$('formTarefa').onsubmit = (ev) => {
+  ev.preventDefault()
+  const texto = $('inputTarefa').value.trim()
+  if (!texto) return
+  socket.emit('tarefa', { acao: 'criar', texto })
+  $('inputTarefa').value = ''
+}
+
+$('btnSoltarTarefa').onclick = () => socket.emit('tarefa', { acao: 'soltar' })
+
+$('listaTarefas').onclick = (ev) => {
+  const li = ev.target.closest('li[data-id]')
+  if (!li) return
+  const id = li.dataset.id
+  const ac = ev.target.dataset.ac
+  if (ac === 'excluir') {
+    if (confirm('Excluir essa tarefa?')) socket.emit('tarefa', { acao: 'excluir', id })
+  } else if (ac) {
+    socket.emit('tarefa', { acao: ac, id })
+  } else if (ev.target.dataset.editar) {
+    const atual = minhasTarefas.find((t) => t.id === id)
+    const novo = prompt('Editar tarefa:', atual?.texto || '')
+    if (novo?.trim()) socket.emit('tarefa', { acao: 'editar', id, texto: novo.trim().slice(0, 140) })
+  }
+}
+
+/* Novo ciclo de foco começando (relógio zerado e disparando): quem ainda
+   não tem tarefa selecionada é convidado a escolher uma do mural. */
+function checarNovoCiclo(anterior, s) {
+  const cicloFresco = (st) => st && st.fase === 'foco' && st.rodando && st.restante === st.focusSec
+  if (cicloFresco(s) && !cicloFresco(anterior) && !tarefaAtualId) abrirModalTarefa()
+}
+
+function abrirModalTarefa() {
+  renderModalTarefa()
+  $('modalTarefa').hidden = false
+}
+
+function fecharModalTarefa() {
+  $('modalTarefa').hidden = true
+  $('inputTarefaRapida').value = ''
+}
+
+function renderModalTarefa() {
+  const disponiveis = minhasTarefas.filter((t) => t.status !== 'concluida')
+  $('modalListaTarefas').innerHTML = disponiveis.length
+    ? disponiveis
+        .map((t) => `<li data-id="${t.id}"><span class="tag">${TAG_TAREFA[t.status]}</span><span>${escapar(t.texto)}</span></li>`)
+        .join('')
+    : '<li class="vazia">Seu mural está vazio — cria uma tarefa aqui embaixo 👇</li>'
+}
+
+$('modalListaTarefas').onclick = (ev) => {
+  const li = ev.target.closest('li[data-id]')
+  if (li) socket.emit('tarefa', { acao: 'selecionar', id: li.dataset.id })
+}
+
+$('formTarefaRapida').onsubmit = (ev) => {
+  ev.preventDefault()
+  const texto = $('inputTarefaRapida').value.trim()
+  if (!texto) return
+  pendenteSelecaoRapida = true
+  socket.emit('tarefa', { acao: 'criar', texto })
+  $('inputTarefaRapida').value = ''
+}
+
+$('btnPularTarefa').onclick = () => fecharModalTarefa()
+
+$('btnTarefaConcluida').onclick = () => {
+  if (tarefaParaConfirmar) socket.emit('tarefa', { acao: 'concluir', id: tarefaParaConfirmar })
+  tarefaParaConfirmar = null
+  $('modalConfirmarTarefa').hidden = true
+}
+
+$('btnTarefaEmAndamento').onclick = () => {
+  tarefaParaConfirmar = null
+  $('modalConfirmarTarefa').hidden = true
 }
 
 /* ─── interações ───────────────────────────────────────────── */

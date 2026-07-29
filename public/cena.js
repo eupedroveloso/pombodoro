@@ -1,4 +1,4 @@
-import { spriteCanvas, CENARIO, CRISTAS, CORPOS } from './sprites.js'
+import { spriteCanvas, CENARIO, CRISTAS, CORPOS, PALETA } from './sprites.js'
 
 /* A cena é desenhada num canvas lógico de 280x160 e depois ampliada por um
    fator INTEIRO. É isso que mantém o pixel quadrado em qualquer tela.
@@ -11,6 +11,25 @@ const ALT = 320
 const SPRITE = 24 // largura do pombo
 const LINHA_CHAO = 270 // meio da faixa de pedra portuguesa (pombos andam 'dentro' da calçada)
 
+const SUJEIRA_MAX = 5 // no nível máximo o pombo desaparece debaixo do cocô
+const SUJO_BASE_MS = 12000
+const SUJO_EXTRA_MS = 7000 // cada acerto novo estende a duração — fica sujo por mais tempo
+
+const COCO_MONTE_MAX = 80 // monte BEM grande: acumula bastante antes de parar de crescer
+const COCO_VIDA_CHEIA_MS = 60000 // fica sólido por 1 minuto
+const COCO_FADE_MS = 15000 // depois começa a sumir aos poucos, ao longo de 15s
+
+/* Posição do "meio do olho" (coluna, linha) dentro do sprite, pra apagar
+   com a cor de contorno e simular a pálpebra fechando — mesmo truque que
+   o sprite 'dormindo' já usa (KK no lugar de WEW). Só nas poses com olho
+   aberto de verdade; dormindo/caído/tonto/bicando já têm estado ocular
+   próprio e ficam de fora. */
+const OLHO = {
+  parado: [7, 5], passo: [7, 6], sentado: [7, 5], sentado2: [7, 5], soco: [7, 5],
+  vooCima: [7, 5], vooBaixo: [7, 5],
+  fumando: [7, 5], fumando2: [7, 5], fumandoTraga: [7, 5],
+}
+
 let cv, ctx, off, offCtx
 let estado = { fase: 'foco', rodando: false, jogadores: [], meuId: null }
 
@@ -22,7 +41,7 @@ let t = 0
 
 /* controle do próprio pombo */
 const teclas = new Set()
-const TECLAS_JOGO = new Set(['a', 'd', 'w', 's', 'e', ' ', '1', '2', '3', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown'])
+const TECLAS_JOGO = new Set(['a', 'd', 'w', 's', 'e', ' ', '1', '2', '3', '4', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown'])
 let ultimoCoco = 0
 let aoMover = null // callback pro app.js mandar a posição pro servidor
 let ultimoEnvio = 0
@@ -75,6 +94,7 @@ export function iniciarCena(canvas, cbMover) {
       v.dormindo = false
       v.dancando = false
       v.bicandoLoop = false
+      v.fumando = false
       // Em cima de algo? S desce (fura a plataforma). No chão, S bica.
       if (v.vy === 0 && v.alt < -0.5) {
         v.alt += 0.6 // passa pra baixo do topo; a física acha a próxima superfície
@@ -96,6 +116,7 @@ export function iniciarCena(canvas, cbMover) {
       const liga = !v.dancando
       v.dormindo = false
       v.bicandoLoop = false
+      v.fumando = false
       v.dancando = liga
       aoMover?.({ x: Math.round(v.x), dir: v.dir, acao: liga ? 'danca' : 'anda' })
     }
@@ -103,6 +124,7 @@ export function iniciarCena(canvas, cbMover) {
       const liga = !v.bicandoLoop
       v.dormindo = false
       v.dancando = false
+      v.fumando = false
       v.bicandoLoop = liga
       aoMover?.({ x: Math.round(v.x), dir: v.dir, acao: liga ? 'bica2' : 'anda' })
     }
@@ -110,9 +132,21 @@ export function iniciarCena(canvas, cbMover) {
       const liga = !v.dormindo
       v.dancando = false
       v.bicandoLoop = false
+      v.fumando = false
       v.dormindo = liga
       if (liga) v.dormiuEm = performance.now()
       aoMover?.({ x: Math.round(v.x), dir: v.dir, acao: liga ? 'dorme' : 'anda' })
+    }
+    // 4 é o cigarro: mesmo toggle infinito dos outros loops. Ligar já bota
+    // uma tragada na hora (fumaFase começa em 'idle' e o ciclo cuida do resto).
+    if (k === '4') {
+      const liga = !v.fumando
+      v.dormindo = false
+      v.dancando = false
+      v.bicandoLoop = false
+      v.fumando = liga
+      if (liga) v.fumaInicioEm = performance.now()
+      aoMover?.({ x: Math.round(v.x), dir: v.dir, acao: liga ? 'fuma' : 'anda' })
     }
   })
   addEventListener('keyup', (e) => teclas.delete(e.key.toLowerCase()))
@@ -139,10 +173,15 @@ export function aplicarPosRemota({ id, x, dir, alt, acao }) {
     v.dormindo = true
     v.dormiuEm = performance.now()
   }
+  if (acao === 'fuma') {
+    v.fumando = true
+    v.fumaInicioEm = performance.now()
+  }
   if (acao === 'anda') {
     v.dormindo = false
     v.dancando = false
     v.bicandoLoop = false
+    v.fumando = false
   }
 }
 
@@ -260,6 +299,47 @@ function animarParticulas(agora) {
   }
 }
 
+/* Fumaça do cigarro: fiapos finos entre tragadas + uma baforada maior
+   (mais partículas, mais dispersão) toda vez que solta o ar. Sobe, se
+   espalha lateralmente e desmancha — puramente cosmético e local. */
+const fumaca = []
+
+function emitirFumaca(x, y, baforada) {
+  const n = baforada ? 7 : 1
+  const agora = performance.now()
+  for (let i = 0; i < n; i++) {
+    const vida = baforada ? 900 + Math.random() * 600 : 650 + Math.random() * 350
+    fumaca.push({
+      x: x + (Math.random() - 0.5) * (baforada ? 5 : 1.5),
+      y: y + (Math.random() - 0.5) * 2,
+      vx: (Math.random() - 0.5) * (baforada ? 0.6 : 0.22),
+      vy: -(baforada ? 0.4 + Math.random() * 0.35 : 0.22 + Math.random() * 0.18),
+      tam: baforada ? 1 + Math.floor(Math.random() * 2) : 1,
+      nasceu: agora,
+      ate: agora + vida,
+    })
+  }
+}
+
+function animarFumaca(agora) {
+  for (let i = fumaca.length - 1; i >= 0; i--) {
+    const p = fumaca[i]
+    if (agora > p.ate) {
+      fumaca.splice(i, 1)
+      continue
+    }
+    p.x += p.vx
+    p.y += p.vy
+    p.vy -= 0.004 // fumaça é mais leve que ar: acelera um pouco pra cima
+    p.vx += (Math.random() - 0.5) * 0.035 // dispersão lateral
+    const vida = (p.ate - agora) / (p.ate - p.nasceu)
+    offCtx.globalAlpha = Math.max(0, vida) * 0.5
+    offCtx.fillStyle = '#d8d4c8'
+    offCtx.fillRect(Math.round(p.x), Math.round(p.y), p.tam, p.tam)
+  }
+  offCtx.globalAlpha = 1
+}
+
 /** Manchas de sangue no chão (vêm do servidor; secam em 30min). */
 function desenharManchas() {
   for (const m of estado.manchas || []) {
@@ -353,9 +433,16 @@ function vistaDe(j, i) {
       bicandoLoop: false,
       dormindo: false,
       dormiuEm: 0,
+      fumando: false,
+      fumaInicioEm: 0,
+      fumaFase: 'idle',
+      fumaUltimoWisp: 0,
       fala: null,
       falaAte: 0,
       sujoAte: 0,
+      sujeira: 0, // nível de cocô acumulado; no máximo, o pombo some debaixo dele
+      piscarAte: 0,
+      piscarProximoEm: performance.now() + 1200 + Math.random() * 4000,
       emote: null,
       emoteAte: 0,
     })
@@ -451,18 +538,52 @@ function quadro(agora) {
         sprite = Math.floor(agora / 160) % 2 ? 'passo' : 'parado'
         espelhar = Math.floor(agora / 320) % 2 === 0
         y -= Math.floor(agora / 160) % 2 ? 2 : 0
+      } else if (v.fumando) {
+        // Ciclo de ~3.2s: a maior parte é baforada tranquila (brasa piscando),
+        // com uma tragada funda no fim que solta a nuvem de fumaça.
+        const desde = agora - (v.fumaInicioEm || agora)
+        const ciclo = desde % 3200
+        const tragando = ciclo < 500
+        sprite = tragando ? 'fumandoTraga' : Math.floor(agora / 480) % 2 ? 'fumando2' : 'fumando'
+        const pontaX = x + (espelhar ? SPRITE - 1 : 1)
+        const pontaY = y - 15
+        if (tragando) {
+          v.fumaFase = 'traga'
+        } else if (v.fumaFase === 'traga') {
+          v.fumaFase = 'idle'
+          emitirFumaca(pontaX, pontaY, true) // baforada funda ao soltar a fumaça
+        }
+        if (!tragando && agora - v.fumaUltimoWisp > 420) {
+          v.fumaUltimoWisp = agora
+          emitirFumaca(pontaX, pontaY, false)
+        }
       } else if (v.andando) sprite = Math.floor(agora / 180) % 2 ? 'passo' : 'parado'
       else sprite = 'parado'
     }
 
-    desenharSprite(sprite, x, y, j.corpo, j.crista, j.acessorio, espelhar)
-    if (agora < v.sujoAte) desenharSujeira(x, y)
+    // Pisca aleatório: cada pombo tem seu próprio relógio de piscada.
+    if (agora > v.piscarProximoEm) {
+      v.piscarAte = agora + 110 + Math.random() * 50
+      v.piscarProximoEm = agora + 1800 + Math.random() * 4500
+    }
+    const piscando = agora < v.piscarAte
+
+    if (agora >= v.sujoAte && v.sujeira) v.sujeira = 0 // sujeira expirou: limpou de vez
+
+    if (v.sujeira >= SUJEIRA_MAX && agora < v.sujoAte) {
+      // Coberto até desaparecer: só os olhos (piscando) espiam por cima do montinho.
+      desenharCobertoDeCoco(x, y, piscando)
+    } else {
+      desenharSprite(sprite, x, y, j.corpo, j.crista, j.acessorio, espelhar, piscando)
+      if (agora < v.sujoAte) desenharSujeira(x, y, v.sujeira)
+    }
     if (j.id === estado.meuId) miraCam = { x: x + SPRITE / 2, y: y - 10 }
     rotulos.push({ j, v, x: x + SPRITE / 2, y })
   }
 
   animarPelotas(agora)
   animarParticulas(agora)
+  animarFumaca(agora)
 
   // Câmera: zoom inteiro que COBRE o palco (sem bordas) e segue o pombo.
   // zoomExtra só aproxima — afastar além do mínimo mostraria borda.
@@ -566,6 +687,7 @@ function moverLocal(v, agora) {
     v.dormindo = false
     v.dancando = false
     v.bicandoLoop = false
+    v.fumando = false
   }
   // Espaço segurado = JATO de cocô (~12/s; o servidor modera o mural).
   if (teclas.has(' ') && agora - ultimoCoco > 85) {
@@ -695,18 +817,30 @@ function desenharCenario() {
   offCtx.fill()
 }
 
-function desenharSprite(nome, x, y, corpo, crista, acessorio, espelhar) {
+function desenharSprite(nome, x, y, corpo, crista, acessorio, espelhar, piscando) {
   const img = spriteCanvas(nome, corpo, crista, acessorio || 0)
   const px = Math.round(x)
   const py = Math.round(y) - img.height
+  // Pisca: apaga o pixel do olho com a cor de contorno, igual ao truque que
+  // o sprite 'dormindo' já usa pra pálpebra fechada — dentro da MESMA
+  // transformação, senão o espelhamento (pombo virado pra direita) erraria o lado.
+  const olho = piscando && OLHO[nome]
   if (espelhar) {
     offCtx.save()
     offCtx.translate(px + img.width, py)
     offCtx.scale(-1, 1)
     offCtx.drawImage(img, 0, 0)
+    if (olho) {
+      offCtx.fillStyle = PALETA.K
+      offCtx.fillRect(olho[0], olho[1], 2, 1)
+    }
     offCtx.restore()
   } else {
     offCtx.drawImage(img, px, py)
+    if (olho) {
+      offCtx.fillStyle = PALETA.K
+      offCtx.fillRect(px + olho[0], py + olho[1], 2, 1)
+    }
   }
 }
 
@@ -716,17 +850,54 @@ function desenharNotebook(x, y, quadro) {
 }
 
 /** Respingos brancos no pombo atingido: cabeça, costas e asa. */
-function desenharSujeira(x, y) {
+/** Respingos possíveis, do topo da cabeça até a cauda — quanto maior o
+    nível de sujeira, mais deles aparecem (até virar cobertura total). */
+const MANCHAS_SUJEIRA = [
+  [7, 3, 3, 2, '#f8f6ef'],
+  [7, 5, 3, 1, '#c9c2ae'],
+  [9, 5, 2, 2, '#f8f6ef'],
+  [13, 8, 2, 2, '#f8f6ef'],
+  [13, 10, 2, 1, '#c9c2ae'],
+  [6, 11, 2, 2, '#f8f6ef'],
+  [4, 9, 2, 2, '#f8f6ef'],
+  [16, 6, 2, 2, '#f8f6ef'],
+  [3, 6, 2, 2, '#f8f6ef'],
+  [10, 12, 3, 2, '#f8f6ef'],
+  [15, 3, 2, 2, '#f8f6ef'],
+  [5, 14, 3, 2, '#f8f6ef'],
+]
+
+function desenharSujeira(x, y, nivel) {
   const px = Math.round(x)
   const py = Math.round(y) - 19 // topo aproximado do sprite
-  offCtx.fillStyle = '#c9c2ae' // sombrinha pra ler em plumagem clara
-  offCtx.fillRect(px + 7, py + 5, 3, 1)
-  offCtx.fillRect(px + 13, py + 10, 2, 1)
-  offCtx.fillStyle = '#f8f6ef'
-  offCtx.fillRect(px + 7, py + 3, 3, 2)
-  offCtx.fillRect(px + 9, py + 5, 2, 2)
-  offCtx.fillRect(px + 13, py + 8, 2, 2)
-  offCtx.fillRect(px + 6, py + 11, 2, 2)
+  const n = Math.min(Math.max(nivel || 1, 1), SUJEIRA_MAX - 1)
+  const qtd = Math.min(2 + n * 2, MANCHAS_SUJEIRA.length)
+  for (let i = 0; i < qtd; i++) {
+    const [dx, dy, w, h, cor] = MANCHAS_SUJEIRA[i]
+    offCtx.fillStyle = cor
+    offCtx.fillRect(px + dx, py + dy, w, h)
+  }
+}
+
+/** Nível máximo de sujeira: o pombo some debaixo de um montinho — só os
+    olhos escapam por cima, piscando de vez em quando. */
+function desenharCobertoDeCoco(x, y, piscando) {
+  const px = Math.round(x)
+  const py = Math.round(y) - 1 // base do montinho na linha dos pés
+  const larg = 20
+  const altura = 15
+  offCtx.fillStyle = '#b9b3a0'
+  offCtx.fillRect(px + SPRITE / 2 - Math.ceil(larg / 2), py, larg + 1, 1)
+  for (let ry = 0; ry < altura; ry++) {
+    const wRow = Math.max(2, Math.round(larg - (ry * larg) / altura))
+    offCtx.fillStyle = ry === altura - 1 ? '#f8f6ef' : ry % 2 ? '#e8e4d4' : '#efece0'
+    offCtx.fillRect(px + SPRITE / 2 - Math.floor(wRow / 2), py - 1 - ry, wRow, 1)
+  }
+  if (!piscando) {
+    offCtx.fillStyle = PALETA.K
+    offCtx.fillRect(px + SPRITE / 2 - 6, py - altura + 2, 2, 2)
+    offCtx.fillRect(px + SPRITE / 2 + 4, py - altura + 2, 2, 2)
+  }
 }
 
 function animarPelotas(agora) {
@@ -735,26 +906,30 @@ function animarPelotas(agora) {
     p.x += p.vx || 0
     p.y += p.vy
     p.vy += 0.12
-    // Na altura da cabeça de quem está embaixo, a sujeira "pega".
+    // Na altura da cabeça de quem está embaixo, a sujeira "pega" — e ACUMULA:
+    // cada acerto novo sobe um nível e estende a duração. No nível máximo o
+    // pombo fica completamente coberto (ver quadro()).
     if (!p.aplicado && p.vitimas.length && p.y >= LINHA_CHAO - 16) {
       p.aplicado = true
       for (const id of p.vitimas) {
         const vv = vistas.get(id)
         if (vv) {
-          vv.sujoAte = agora + 12000
+          vv.sujeira = Math.min((vv.sujeira || 0) + 1, SUJEIRA_MAX)
+          vv.sujoAte = agora + SUJO_BASE_MS + vv.sujeira * SUJO_EXTRA_MS
           vv.emote = '💩'
           vv.emoteAte = agora + 1500
         }
       }
     }
     if (p.y >= LINHA_CHAO - 1) {
-      // Cocô no mesmo lugar ACUMULA: a pilha cresce e dura mais.
+      // Cocô no mesmo lugar ACUMULA: a pilha cresce (até virar um monte bem
+      // grande) e o relógio reinicia — enquanto tiver movimento ali, ela dura.
       const perto = splats.find((s2) => Math.abs(s2.x - p.x) < 7)
       if (perto) {
-        perto.quantidade = Math.min(perto.quantidade + 1, 10)
-        perto.ate = agora + 20000 + perto.quantidade * 4000
+        perto.quantidade = Math.min(perto.quantidade + 1, COCO_MONTE_MAX)
+        perto.criadoEm = agora
       } else {
-        splats.push({ x: p.x, quantidade: 1, ate: agora + 20000 })
+        splats.push({ x: p.x, quantidade: 1, criadoEm: agora })
       }
       pelotas.splice(i, 1)
       continue
@@ -765,22 +940,28 @@ function animarPelotas(agora) {
 
   for (let i = splats.length - 1; i >= 0; i--) {
     const s = splats[i]
-    if (agora > s.ate) {
+    const desde = agora - s.criadoEm
+    // Sólido por 1min, depois esmaece aos poucos até sumir de vez.
+    if (desde > COCO_VIDA_CHEIA_MS + COCO_FADE_MS) {
       splats.splice(i, 1)
       continue
     }
-    // Montinho: base cresce com a quantidade, empilhando em pirâmide.
+    const alpha = desde <= COCO_VIDA_CHEIA_MS ? 1 : Math.max(0, 1 - (desde - COCO_VIDA_CHEIA_MS) / COCO_FADE_MS)
+    // Montinho: base cresce com a quantidade, empilhando em pirâmide —
+    // com bastante cocô em cima, isso vira um monte de verdade.
     const q = s.quantidade || 1
-    const larg = Math.min(3 + q, 13)
-    const altura = 1 + Math.min(Math.floor(q / 2), 4)
+    const larg = Math.min(4 + q * 0.55, 42)
+    const altura = 1 + Math.min(Math.floor(q / 4), 14)
     const cx2 = Math.round(s.x)
+    offCtx.globalAlpha = alpha
     offCtx.fillStyle = '#b9b3a0' // sombra da base
-    offCtx.fillRect(cx2 - Math.ceil(larg / 2), LINHA_CHAO, larg + 1, 1)
+    offCtx.fillRect(cx2 - Math.ceil(larg / 2), LINHA_CHAO, Math.round(larg) + 1, 1)
     for (let ry = 0; ry < altura; ry++) {
       const wRow = Math.max(2, Math.round(larg - (ry * larg) / altura))
       offCtx.fillStyle = ry === altura - 1 ? '#f8f6ef' : ry % 2 ? '#e8e4d4' : '#efece0'
       offCtx.fillRect(cx2 - Math.floor(wRow / 2), LINHA_CHAO - 1 - ry, wRow, 1)
     }
+    offCtx.globalAlpha = 1
   }
 }
 

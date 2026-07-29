@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3000
 
 // Bump a cada mudança de física/protocolo: clientes com versão diferente
 // recarregam sozinhos — acaba o pombo fantasma de aba desatualizada.
-const VERSAO_APP = 15
+const VERSAO_APP = 16
 
 /* ─────────────────────────── regras da praça ─────────────────────────── */
 
@@ -87,6 +87,38 @@ function anunciar(sala, texto) {
   sala.mural.push({ tipo: 'sistema', texto, ts: Date.now() })
 }
 
+/* ─────────────────────────── mural de tarefas ─────────────────────────── */
+/* Tarefas são PESSOAIS — cada jogador só vê e mexe nas suas. Por isso não
+   entram em jogadoresVisiveis()/estado() (que é broadcast pra sala inteira);
+   viajam num evento próprio, direcionado só ao socket do dono. */
+
+const MAX_TAREFAS = 60
+const gerarIdTarefa = () => `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+
+const tarefaSerializada = (t) => ({ id: t.id, texto: t.texto, status: t.status, criadaEm: t.criadaEm })
+
+function enviarTarefas(jogador) {
+  if (!jogador.socketId) return
+  io.to(jogador.socketId).emit('minhasTarefas', {
+    tarefas: (jogador.tarefas || []).map(tarefaSerializada),
+    atual: jogador.tarefaAtual || null,
+  })
+}
+
+/** Libera a tarefa selecionada pro ciclo (sem excluir): volta pro mural como
+    'em_andamento'. `avisar` pergunta ao dono se ela foi concluída — só faz
+    sentido quando o ciclo de foco termina de verdade, não num reset manual. */
+function liberarTarefaAtual(jogador, avisar) {
+  if (!jogador.tarefaAtual) return
+  const t = (jogador.tarefas || []).find((x) => x.id === jogador.tarefaAtual)
+  jogador.tarefaAtual = null
+  if (!t || t.status === 'concluida') return
+  t.status = 'em_andamento'
+  if (avisar && jogador.socketId) {
+    io.to(jogador.socketId).emit('confirmarTarefa', { id: t.id, texto: t.texto })
+  }
+}
+
 function carregar() {
   if (!existsSync(DATA_FILE)) return
   try {
@@ -110,6 +142,8 @@ function carregar() {
           socketId: null,
           focoValido: false,
           saiu: false,
+          tarefas: Array.isArray(j.tarefas) ? j.tarefas : [],
+          tarefaAtual: j.tarefaAtual || null,
         })
       }
       salas.set(codigo, sala)
@@ -141,6 +175,8 @@ function salvar() {
               sprints: j.sprints,
               sprintsHoje: j.sprintsHoje,
               dia: j.dia,
+              tarefas: j.tarefas || [],
+              tarefaAtual: j.tarefaAtual || null,
             },
           ])
         ),
@@ -262,6 +298,8 @@ io.on('connection', (socket) => {
         socketId: socket.id,
         focoValido: false, // entrou com o sprint rolando? esse não conta
         saiu: false,
+        tarefas: [],
+        tarefaAtual: null,
       }
       sala.jogadores.set(id, jogador)
       anunciar(sala, `${nome} pousou na praça`)
@@ -276,6 +314,7 @@ io.on('connection', (socket) => {
 
     salvar()
     io.to(codigo).emit('estado', estado(sala))
+    enviarTarefas(jogador)
   })
 
   /* ── controles do cronômetro ── */
@@ -297,13 +336,17 @@ io.on('connection', (socket) => {
       t.fase = 'foco'
       t.restante = t.focusSec
       t.rodando = false
-      for (const j of sala.jogadores.values()) j.focoValido = false
+      for (const j of sala.jogadores.values()) {
+        j.focoValido = false
+        liberarTarefaAtual(j, false) // ciclo abortado, não terminado — sem perguntar
+      }
       anunciar(sala, `${jogador.nome} zerou o relógio ↺`)
     } else {
       return
     }
     salvar()
     io.to(sala.codigo).emit('estado', estado(sala))
+    if (acao === 'reset') for (const j of sala.jogadores.values()) enviarTarefas(j)
   })
 
   socket.on('config', (payload = {}) => {
@@ -317,10 +360,14 @@ io.on('connection', (socket) => {
     t.fase = 'foco'
     t.restante = t.focusSec
     t.rodando = false
-    for (const j of sala.jogadores.values()) j.focoValido = false
+    for (const j of sala.jogadores.values()) {
+      j.focoValido = false
+      liberarTarefaAtual(j, false)
+    }
     anunciar(sala, `${jogador.nome} ajustou: ${Math.round(t.focusSec / 60)}min foco · ${Math.round(t.breakSec / 60)}min pausa`)
     salvar()
     io.to(sala.codigo).emit('estado', estado(sala))
+    for (const j of sala.jogadores.values()) enviarTarefas(j)
   })
 
   /* ── presença e conversa ── */
@@ -346,6 +393,66 @@ io.on('connection', (socket) => {
     io.to(sala.codigo).emit('estado', estado(sala))
   })
 
+  /* ── mural de tarefas ── */
+
+  socket.on('tarefa', (payload = {}) => {
+    if (!sala || !jogador) return
+    if (!jogador.tarefas) jogador.tarefas = []
+    const acao = String(payload.acao || '')
+    const id = String(payload.id || '')
+
+    if (acao === 'criar' || acao === 'duplicar') {
+      let texto = String(payload.texto || '').trim().slice(0, 140)
+      if (acao === 'duplicar') {
+        const origem = jogador.tarefas.find((t) => t.id === id)
+        if (!origem) return
+        texto = origem.texto
+      }
+      if (!texto) return
+      if (jogador.tarefas.length >= MAX_TAREFAS) {
+        return socket.emit('recusado', `Seu mural já tem ${MAX_TAREFAS} tarefas — dá um trato antes de criar mais 📋`)
+      }
+      jogador.tarefas.push({ id: gerarIdTarefa(), texto, status: 'pendente', criadaEm: Date.now() })
+    } else if (acao === 'editar') {
+      const texto = String(payload.texto || '').trim().slice(0, 140)
+      const t = jogador.tarefas.find((x) => x.id === id)
+      if (!t || !texto) return
+      t.texto = texto
+    } else if (acao === 'excluir') {
+      jogador.tarefas = jogador.tarefas.filter((t) => t.id !== id)
+      if (jogador.tarefaAtual === id) jogador.tarefaAtual = null
+    } else if (acao === 'selecionar') {
+      const t = jogador.tarefas.find((x) => x.id === id)
+      if (!t || t.status === 'concluida') return
+      if (jogador.tarefaAtual && jogador.tarefaAtual !== id) {
+        // Trocou de ideia antes do ciclo fechar: a antiga volta a 'pendente'.
+        const antiga = jogador.tarefas.find((x) => x.id === jogador.tarefaAtual)
+        if (antiga && antiga.status === 'em_andamento') antiga.status = 'pendente'
+      }
+      jogador.tarefaAtual = id
+      t.status = 'em_andamento'
+    } else if (acao === 'soltar') {
+      // Diferente do fim de ciclo: aqui foi o próprio dono que desistiu de
+      // rastrear, então volta pra 'pendente' — não 'em_andamento'.
+      const t = jogador.tarefas.find((x) => x.id === jogador.tarefaAtual)
+      if (t && t.status === 'em_andamento') t.status = 'pendente'
+      jogador.tarefaAtual = null
+    } else if (acao === 'concluir') {
+      const t = jogador.tarefas.find((x) => x.id === id)
+      if (!t) return
+      t.status = 'concluida'
+      if (jogador.tarefaAtual === id) jogador.tarefaAtual = null
+    } else if (acao === 'reabrir') {
+      const t = jogador.tarefas.find((x) => x.id === id)
+      if (t) t.status = 'pendente'
+    } else {
+      return
+    }
+
+    salvar()
+    enviarTarefas(jogador)
+  })
+
   socket.on('emote', (payload = {}) => {
     if (!sala || !jogador) return
     const emoji = String(payload.emoji || '').slice(0, 4)
@@ -357,7 +464,7 @@ io.on('connection', (socket) => {
     if (!sala || !jogador) return
     if (emFoco(sala)) return // trabalhando não se anda nem se soca
 
-    const acao = ['anda', 'bica', 'bica2', 'pula', 'soco', 'coco', 'danca', 'dorme'].includes(payload.acao) ? payload.acao : 'anda'
+    const acao = ['anda', 'bica', 'bica2', 'pula', 'soco', 'coco', 'danca', 'dorme', 'fuma'].includes(payload.acao) ? payload.acao : 'anda'
     const x = Number(payload.x)
     if (Number.isFinite(x)) jogador.posX = Math.max(0, Math.min(640, x))
     jogador.posDir = payload.dir === 1 ? 1 : -1
@@ -367,10 +474,12 @@ io.on('connection', (socket) => {
     if (acao === 'coco') {
       if (!Number.isFinite(jogador.posX)) return
       // Quem está na vertical do pombo E abaixo dele (cocô não cai pra cima).
+      // Janela larga de propósito — pegar os outros deve ser fácil, não uma
+      // mira cirúrgica.
       const vitimas = []
       for (const outro of sala.jogadores.values()) {
         if (outro === jogador || outro.saiu || !Number.isFinite(outro.posX)) continue
-        if (Math.abs(outro.posX - jogador.posX) > 8) continue
+        if (Math.abs(outro.posX - jogador.posX) > 18) continue
         if ((outro.posAlt || 0) < (jogador.posAlt || 0)) continue
         vitimas.push(outro.id)
       }
@@ -491,6 +600,7 @@ io.on('connection', (socket) => {
     }
     jogador.saiu = true
     jogador.focoValido = false
+    liberarTarefaAtual(jogador, false) // saiu no meio do ciclo — sem cobrar confirmação
     // Saída dramática: explode onde estava e a mancha fica na praça.
     const ondeX = Number.isFinite(jogador.posX) ? jogador.posX : 300
     sala.manchas.push({ x: ondeX, ts: Date.now() })
@@ -590,7 +700,14 @@ function fecharSprint(sala) {
     }
   }
 
-  for (const j of sala.jogadores.values()) j.focoValido = false
+  for (const j of sala.jogadores.values()) {
+    j.focoValido = false
+    // Fim de verdade do ciclo de foco: quem tinha tarefa selecionada é
+    // convidado a confirmar se terminou. Não confirmou? Volta ao mural
+    // como 'em_andamento' — é o liberarTarefaAtual que já cuida disso.
+    liberarTarefaAtual(j, true)
+    enviarTarefas(j)
+  }
 
   if (premiados.length > 0) {
     const nomes = premiados.map((j) => j.nome).join(', ')
@@ -600,8 +717,8 @@ function fecharSprint(sala) {
         ? `${nomes} fechou o sprint · +${ganho} 🍞`
         : `${nomes} fecharam o sprint juntos · +${ganho} 🍞 cada (bando de ${concluiram.length})`
     )
-    salvar()
   }
+  salvar() // migalhas e/ou tarefas podem ter mudado mesmo sem premiados
 }
 
 carregar()

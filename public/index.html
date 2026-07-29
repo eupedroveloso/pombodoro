@@ -63,9 +63,9 @@
   <header>
     <div class="fase">
       <span id="rotuloFase" class="pill">—</span>
-      <strong id="relogio">--:--</strong>
       <small id="proxima"></small>
     </div>
+    <strong id="relogio" class="relogio-grande">--:--</strong>
     <div class="acoes">
       <button id="btnPlay" title="Continuar">▶</button>
       <button id="btnReset" class="ghost" title="Zerar">↺</button>
@@ -73,12 +73,29 @@
         <label>foco <input id="slFoco" type="range" min="1" max="60" step="1" value="30"> <b id="vFoco">30m</b></label>
         <label>pausa <input id="slPausa" type="range" min="1" max="30" step="1" value="6"> <b id="vPausa">6m</b></label>
       </div>
-      <button id="btnLink" class="ghost">🔗 Copiar convite</button>
-      <button id="btnSair" class="ghost" title="Sair da praça (as migalhas ficam guardadas)">🚪 Sair</button>
     </div>
   </header>
 
   <main>
+    <button type="button" id="toggleTarefas" class="aba-toggle esquerda" title="Mostrar/esconder mural">📋</button>
+    <button type="button" id="toggleControles" class="aba-toggle direita" title="Mostrar/esconder controles">🎛</button>
+
+    <aside id="asideTarefas">
+      <div class="bloco cresce">
+        <h2>Mural 📋</h2>
+        <div id="tarefaAtualBox" class="tarefa-atual" hidden>
+          <small>fazendo neste ciclo</small>
+          <div class="texto" id="tarefaAtualTexto"></div>
+          <button type="button" id="btnSoltarTarefa" class="ghost mini2">soltar</button>
+        </div>
+        <form id="formTarefa">
+          <input id="inputTarefa" maxlength="140" placeholder="Nova tarefa…" autocomplete="off">
+          <button title="Adicionar">+</button>
+        </form>
+        <ul id="listaTarefas"></ul>
+      </div>
+    </aside>
+
     <div id="palco">
       <canvas id="cena"></canvas>
       <div id="zoomBotoes">
@@ -87,7 +104,7 @@
       </div>
     </div>
 
-    <aside>
+    <aside id="asideControles">
       <div class="bloco" id="blocoRadio">
         <h2>Rádio da praça 📻</h2>
         <div id="ytwrap"><div id="ytplayer"></div></div>
@@ -116,22 +133,57 @@
         <ol id="placar"></ol>
       </div>
       <div class="bloco cresce">
-        <h2>Mural</h2>
+        <h2>Linha do tempo 🕒</h2>
         <div id="mural"></div>
       </div>
     </aside>
   </main>
 
   <footer>
-    <div id="emotes"></div>
-    <form id="formMural">
-      <input id="inputMural" maxlength="200" autocomplete="off">
-      <button id="btnEnviar">Piar</button>
-    </form>
-    <button id="btnSortear" class="ghost" title="Sorteia um pombo presente na praça">🎲 Sortear</button>
+    <div class="rodape-esquerda">
+      <span id="migalhasIndicador" class="migalhas-indicador" title="Suas migalhas">🍞 <b id="minhasMigalhas">0</b></span>
+    </div>
+    <div class="rodape-centro">
+      <div id="emotes"></div>
+      <form id="formMural">
+        <input id="inputMural" maxlength="200" autocomplete="off">
+        <button id="btnEnviar">Piar</button>
+      </form>
+      <button id="btnSortear" class="ghost" title="Sorteia um pombo presente na praça">🎲 Sortear</button>
+    </div>
+    <div class="rodape-direita">
+      <button id="btnLink" class="ghost">🔗 Copiar convite</button>
+      <button id="btnSair" class="ghost" title="Sair da praça (as migalhas ficam guardadas)">🚪 Sair</button>
+    </div>
   </footer>
 
   <div id="toast" hidden></div>
+
+  <!-- ─── modal: escolher tarefa do ciclo ─────────────────────── -->
+  <div id="modalTarefa" class="modal" hidden>
+    <div class="modal-caixa">
+      <h3>🐦 Novo ciclo de foco</h3>
+      <p>Qual tarefa você vai focar agora?</p>
+      <ul id="modalListaTarefas"></ul>
+      <form id="formTarefaRapida">
+        <input id="inputTarefaRapida" maxlength="140" placeholder="ou crie uma tarefa nova…" autocomplete="off">
+        <button title="Criar e usar">+</button>
+      </form>
+      <button type="button" id="btnPularTarefa" class="ghost">Pular esse ciclo</button>
+    </div>
+  </div>
+
+  <!-- ─── modal: confirmar conclusão ao fim do foco ───────────── -->
+  <div id="modalConfirmarTarefa" class="modal" hidden>
+    <div class="modal-caixa">
+      <h3>⏱ Fim do foco</h3>
+      <p>Você concluiu <b>"<span id="confirmarTarefaTexto"></span>"</b>?</p>
+      <div class="modal-acoes">
+        <button type="button" id="btnTarefaConcluida">✅ Concluí</button>
+        <button type="button" id="btnTarefaEmAndamento" class="ghost">↩️ Ainda não</button>
+      </div>
+    </div>
+  </div>
 </section>
 
 <script src="/socket.io/socket.io.js"></script>
