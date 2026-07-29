@@ -4,14 +4,14 @@
 
 import { deflateSync } from 'node:zlib'
 import { writeFileSync } from 'node:fs'
-import { SPRITES, PALETA, CORPOS, CRISTAS, CENARIO, misturar } from './public/sprites.js'
+import { SPRITES, CENARIO, coresDe } from './public/sprites.js'
 
-const LARG = 250
-const ALT = 84
-const ESCALA = 6
-const LINHA_CHAO = 62
-const ESTACAO = 38
-const PASSO_MAX = 46
+const LARG = 330
+const ALT = 96
+const ESCALA = 5
+const LINHA_CHAO = 74
+const ESTACAO = 52
+const PASSO_MAX = 56
 
 /* ─── framebuffer ─────────────────────────────────────────── */
 
@@ -48,8 +48,7 @@ function elipse(cx, cy, rx, ry, cor) {
 
 function sprite(nome, x, y, iCorpo = 0, iCrista = 0, espelhar = false) {
   const mapa = SPRITES[nome]
-  const corpo = CORPOS[iCorpo % 6]
-  const cores = { ...PALETA, L: corpo.l, P: corpo.m, D: corpo.d, A: misturar(corpo.m, corpo.d), C: CRISTAS[iCrista % 6] }
+  const cores = coresDe(iCorpo, iCrista)
   const larg = Math.max(...mapa.map((l) => l.length))
   const topo = y - mapa.length
   for (let j = 0; j < mapa.length; j++)
@@ -82,13 +81,14 @@ if (modo === 'foco') {
   const largura = (n - 1) * passo + ESTACAO
   PRACA.forEach((j, i) => {
     const x0 = (LARG - largura) / 2 + i * passo
-    sprite('monitor', x0, LINHA_CHAO + 2)
-    sprite('sentado', x0 + 13, LINHA_CHAO, j.corpo, j.crista)
+    // Quadros de digitação alternados, pra ver os três de uma vez.
+    sprite(['sentado', 'sentado2', 'sentado3'][i % 3], x0 + 8, LINHA_CHAO, j.corpo, j.crista)
+    sprite(i % 2 ? 'notebook2' : 'notebook', x0 - 8, LINHA_CHAO + 1)
   })
 } else {
-  const poses = ['parado', 'soco', 'tonto', 'vooCima', 'vooBaixo', 'bicando']
+  const poses = ['parado', 'soco', 'tonto', 'vooCima', 'vooBaixo', 'bicando2']
   PRACA.forEach((j, i) => {
-    sprite(poses[i], 8 + i * 40, LINHA_CHAO + (poses[i].startsWith('voo') ? -10 : 0), j.corpo, j.crista, false)
+    sprite(poses[i], 4 + i * 54, LINHA_CHAO + (poses[i].startsWith('voo') ? -14 : 0), j.corpo, j.crista, false)
   })
 }
 

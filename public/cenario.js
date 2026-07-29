@@ -46,6 +46,8 @@ export const C = {
   ceuC: '#b8d2df',
   nuvem: '#eef3f2',
   nuvemS: '#cfe0e7',
+  nuvemT: '#fbfefc',
+  pombaCeu: '#8195a8',
 
   // Três planos de cidade. A distância é resolvida com VALOR e TEMPERATURA:
   // longe puxa pro azul do céu, perto puxa pro bege quente e mais escuro.
@@ -67,6 +69,9 @@ export const C = {
   pertoS: '#9c917c',
   janelaP: '#77808e',
   janelaAcesa: '#c8b273',
+  tijolo: '#b08468',
+  tijoloS: '#8f6752',
+  tijoloT: '#c39a7e',
   caixa: '#5b7d92',
   caixaL: '#7597a9',
   caixaS: '#41616f',
@@ -92,8 +97,10 @@ export const C = {
 
   pedra: '#ddd7c7',
   pedraS: '#cbc4b1',
+  pedraL: '#e8e2d3',
   pedraEsc: '#6b6672',
   pedraEscL: '#7e7885',
+  pedraEscD: '#5a5560',
   guia: '#cdc6b4',
   guiaF: '#a19886',
   asfalto: '#5c5b63',
@@ -109,15 +116,18 @@ export const C = {
   telha: '#c0674a',
   telhaL: '#dc8a63',
   telhaS: '#8f4030',
+  telhaV: '#6f2b30',
   laranja: '#d8703a',
   laranjaL: '#ee9660',
   laranjaS: '#a94d26',
+  laranjaBri: '#f8b57b',
   metal: '#6f6e78',
   metalL: '#8c8b94',
   metalS: '#4f4e58',
   vidro: '#a9c1cf',
   vidroL: '#cbdbe2',
   vidroS: '#7b95a6',
+  vidroT: '#dde9ee',
   azul: '#456d99',
   azulL: '#6a8fbb',
   azulS: '#2f4c75',
@@ -143,6 +153,8 @@ export const C = {
   amareloS: '#ab8c2b',
   papel: '#ece8dc',
   vermelho: '#b6534a',
+  vermelhoL: '#d3766b',
+  vermelhoS: '#8a3a33',
 }
 
 /* ── superfícies pisáveis ────────────────────────────────────────────────
@@ -230,21 +242,28 @@ function ceu({ r }) {
   r(0, 128, LARG, MURO_Y - 128, C.ceuC)
 }
 
+/* Cúmulo em degraus: um lobo grande deslocado pra esquerda, um menor à
+   direita, base ACHATADA e sombreada. Três tons — coroa acesa (luz vem de
+   cima-à-esquerda), corpo, barriga — em clusters chapados, nunca faixas
+   paralelas. */
 function nuvem({ r }, x, y, w) {
-  // Cinco degraus de largura: silhueta de nuvem sem uma única borda macia.
-  const perfil = [
-    [0.36, 0.64],
-    [0.22, 0.8],
-    [0.09, 0.93],
-    [0.0, 1.0],
-    [0.05, 0.95],
-  ]
-  perfil.forEach(([a, b], i) => {
-    r(x + a * w, y + i * 2, (b - a) * w, 2, i === perfil.length - 1 ? C.nuvemS : C.nuvem)
-  })
-  const lw = Math.round(w * 0.4)
-  r(x + w * 0.5, y - 2, lw, 2, C.nuvem)
-  r(x + w * 0.56, y - 4, Math.round(lw * 0.55), 2, C.nuvem)
+  const u = w / 12
+  // base achatada — a linha d'água da nuvem
+  r(x, y + 8, w, 3, C.nuvem)
+  r(x + u * 0.6, y + 11, w - u * 1.6, 1, C.nuvemS)
+  r(x + u * 4.6, y + 9, u * 6.6, 2, C.nuvemS) // barriga do lado da sombra
+  // lobo grande, coroa pra cima-esquerda
+  r(x + u * 1.6, y + 4, u * 5.6, 4, C.nuvem)
+  r(x + u * 2.2, y + 2, u * 4.2, 2, C.nuvem)
+  r(x + u * 2.8, y, u * 2.6, 2, C.nuvemT)
+  r(x + u * 2.2, y + 2, u * 2.2, 2, C.nuvemT)
+  r(x + u * 1.6, y + 4, u * 1.6, 2, C.nuvemT)
+  r(x + u * 6.4, y + 5, u * 0.8, 3, C.nuvemS) // vinco entre os lobos
+  // lobo menor, mais baixo, já meio na sombra
+  r(x + u * 7.4, y + 5, u * 3.4, 3, C.nuvem)
+  r(x + u * 7.8, y + 3.6, u * 2.2, 2, C.nuvem)
+  r(x + u * 8, y + 3.6, u * 1.2, 1, C.nuvemT)
+  r(x + u * 9.6, y + 6, u * 1.2, 2, C.nuvemS)
 }
 
 function nuvens(f) {
@@ -260,6 +279,26 @@ function nuvens(f) {
     [408, 96, 28],
   ])
     nuvem(f, x, y, w)
+}
+
+/* Bando de pombas longe: um "v" de 3px, cinza-azulado do céu. É o detalhe
+   que diz "praça" antes mesmo do protagonista entrar em cena. */
+function pombasCeu({ p }) {
+  for (const [x, y] of [
+    [196, 66],
+    [206, 61],
+    [214, 69],
+    [223, 64],
+    [508, 88],
+    [517, 84],
+    [524, 90],
+    [66, 118],
+    [75, 114],
+  ]) {
+    p(x, y, C.pombaCeu)
+    p(x + 1, y - 1, C.pombaCeu)
+    p(x + 2, y, C.pombaCeu)
+  }
 }
 
 /* ── skyline ─────────────────────────────────────────────────────────────
@@ -290,33 +329,85 @@ function faixaPredios(f, cfg) {
 
     if (cfg.janela) {
       const tipo = rr()
-      if (tipo < 0.45) {
+      if (tipo < 0.34) {
         for (let jy = topo + 4; jy < MURO_Y - 4; jy += cfg.passoY)
           for (let jx = x + 3; jx + cfg.jw < x + w - 2; jx += cfg.passoX) {
             r(jx, jy, cfg.jw, cfg.jh, rr() < 0.08 ? C.janelaAcesa : cfg.janela)
             if (cfg.peitoril) r(jx, jy + cfg.jh, cfg.jw, 1, cfg.corTopo)
+            // ar-condicionado pendurado: a verruga metálica da fachada paulistana
+            if (cfg.arCond && rr() < 0.09) {
+              r(jx, jy + cfg.jh + 1, 3, 2, C.metalL)
+              r(jx, jy + cfg.jh + 2, 3, 1, C.metalS)
+            }
           }
-      } else if (tipo < 0.78) {
-        // varandas corridas: duas linhas 1px por pavimento
+      } else if (tipo < 0.56) {
+        // varandas corridas: laje pega luz, vão na sombra, peitoril fecha
         for (let jy = topo + 5; jy < MURO_Y - 4; jy += cfg.passoY + 1) {
-          r(x + 2, jy, w - 4, 1, cfg.janela)
-          r(x + 2, jy + 1, w - 4, 1, cfg.corSombra)
+          r(x + 2, jy, w - 4, 1, cfg.corTopo)
+          r(x + 2, jy + 1, w - 4, 1, cfg.janela)
+          r(x + 2, jy + 2, w - 4, 1, cfg.corSombra)
+          if (cfg.arCond) for (let vx = x + 6; vx < x + w - 4; vx += 8) r(vx, jy, 1, 3, cfg.corSombra)
         }
-      } else {
-        // empena cega: junta vertical e uma fileira de janelinhas de escada
+      } else if (tipo < 0.68) {
+        // empena cega: junta vertical, janelinha de escada e mancha de
+        // infiltração escorrendo do topo — degrau que afunila, não ruído
         for (let jx = x + 5; jx < x + w - 4; jx += 9) r(jx, topo + 3, 1, MURO_Y - topo - 6, cfg.corSombra)
         for (let jy = topo + 6; jy < MURO_Y - 6; jy += cfg.passoY + 3)
           r(x + Math.floor(w / 2), jy, cfg.jw, cfg.jh, cfg.janela)
+        const mw = 3 + Math.floor(rr() * 4)
+        const mx = x + 2 + Math.floor(rr() * Math.max(1, w - mw - 4))
+        r(mx, topo + 1, mw, 5, cfg.corSombra)
+        r(mx + 1, topo + 6, mw - 2, 5, cfg.corSombra)
+        r(mx + 1, topo + 11, 1, 4 + Math.floor(rr() * 5), cfg.corSombra)
+      } else if (cfg.tijolo && tipo < 0.84) {
+        // tijolo aparente: corpo quente, cinta de laje clara por pavimento
+        r(x, topo + 1, w, h - 1, C.tijolo)
+        r(x, topo, w, 1, C.tijoloT)
+        r(x + w - 1, topo + 1, 1, h - 1, C.tijoloS)
+        for (let jy = topo + 4; jy < MURO_Y - 3; jy += cfg.passoY) {
+          r(x + 1, jy - 1, w - 2, 1, C.tijoloT)
+          for (let jx = x + 3; jx + cfg.jw < x + w - 2; jx += cfg.passoX)
+            r(jx, jy + 1, cfg.jw, cfg.jh, rr() < 0.08 ? C.janelaAcesa : C.tijoloS)
+        }
+      } else if (cfg.vidroEsp) {
+        // torre de vidro espelhado: primeiro a banda diagonal do céu
+        // refletido (mancha chapada, miolo aceso), depois laje e montante
+        // por cima — é a ordem que faz ler "vidro" e não "listrado"
+        r(x, topo + 1, w, h - 1, C.vidro)
+        r(x, topo, w, 1, C.vidroT)
+        const d0 = x + w - 2
+        for (let py = topo + 1; py < MURO_Y - 1; py++) {
+          const bx = d0 - Math.floor((py - topo) * 0.7)
+          const a0 = Math.max(x + 1, bx - 7)
+          const a1 = Math.min(x + w - 1, bx + 4)
+          if (a1 > a0) r(a0, py, a1 - a0, 1, C.vidroL)
+          const b0 = Math.max(x + 1, bx - 3)
+          const b1 = Math.min(x + w - 1, bx + 1)
+          if (b1 > b0) r(b0, py, b1 - b0, 1, C.vidroT)
+        }
+        for (let jy = topo + 4; jy < MURO_Y - 2; jy += cfg.passoY - 1) r(x + 1, jy, w - 2, 1, C.vidroS)
+        for (let jx = x + 4; jx < x + w - 2; jx += 5) r(jx, topo + 1, 1, h - 1, C.vidroS)
+        r(x + w - 1, topo + 1, 1, h - 1, C.vidroS)
+      } else {
+        // fachada de faixas horizontais pintadas
+        for (let jy = topo + 4; jy < MURO_Y - 4; jy += cfg.passoY) {
+          r(x + 1, jy, w - 2, 2, cfg.corSombra)
+          for (let jx = x + 3; jx + cfg.jw < x + w - 2; jx += cfg.passoX) r(jx, jy, cfg.jw, 2, cfg.janela)
+        }
       }
     }
     if (cfg.caixa && rr() < 0.5 && w > 16) {
+      // caixa d'água de tampa cônica sobre perninhas — a coroa do prédio
       const cw = 5 + Math.floor(rr() * 3)
       const cx = x + 3 + Math.floor(rr() * Math.max(1, w - cw - 6))
       r(cx + 1, topo - 8, 1, 3, C.metalS)
       r(cx + cw - 2, topo - 8, 1, 3, C.metalS)
       r(cx, topo - 6, cw, 6, C.caixa)
       r(cx, topo - 6, cw, 1, C.caixaL)
+      r(cx + 1, topo - 5, 1, 4, C.caixaL)
       r(cx + cw - 1, topo - 5, 1, 5, C.caixaS)
+      r(cx, topo - 1, cw, 1, C.caixaS)
+      r(cx + 1, topo - 7, cw - 2, 1, C.caixaL) // tampa
     }
     if (cfg.sacada && rr() < 0.35) {
       // caixa de casa de máquinas recuada no topo
@@ -325,7 +416,12 @@ function faixaPredios(f, cfg) {
       r(x + 3, topo - 7, bw, 1, cfg.corTopo)
       r(x + 3 + bw - 1, topo - 6, 1, 6, cfg.corSombra)
     }
-    if (cfg.antena && rr() < 0.28) r(x + 4 + Math.floor(rr() * Math.max(1, w - 8)), topo - 9, 1, 9, C.metalS)
+    if (cfg.antena && rr() < 0.28) {
+      const ax = x + 4 + Math.floor(rr() * Math.max(1, w - 8))
+      r(ax, topo - 9, 1, 9, C.metalS)
+      r(ax - 2, topo - 8, 5, 1, C.metalS)
+      r(ax - 1, topo - 5, 3, 1, C.metalS)
+    }
 
     // vão de céu entre torres: é o que deixa o plano de trás aparecer
     x += w + (rr() < (cfg.vaoChance ?? 0) ? 3 + Math.floor(rr() * 10) : 0)
@@ -344,33 +440,50 @@ function predioMural({ r }) {
   r(x + 13, topo - 6, 10, 1, C.caixaL)
   r(x + 22, topo - 5, 1, 5, C.caixaS)
 
-  // Empena cega pintada: manchas grandes, chapadas, encaixadas. A leitura
-  // vem do recorte entre elas — nenhuma leva linha de contorno.
+  // Empena pintada: agora o mural TEM figura — sol, serra, mar e uma pomba
+  // branca no meio. Tudo mancha chapada encaixada, nenhuma linha de contorno;
+  // a leitura vem do recorte entre as cores, como nos murais do Minhocão.
   const m = [
-    [0, 26, 26, 30, C.grafA],
-    [26, 26, 18, 18, C.grafC],
-    [26, 44, 18, 14, C.grafB],
-    [2, 56, 22, 24, C.grafB],
-    [24, 58, 20, 26, C.ipe],
-    [0, 80, 16, 30, C.grafC],
-    [16, 84, 16, 26, C.azul],
-    [32, 84, 12, 30, C.grafA],
-    [2, 110, 24, 20, C.ipe],
-    [26, 114, 18, 18, C.grafC],
-    [0, 130, 20, 19, C.azul],
-    [20, 132, 24, 17, C.grafA],
+    // céu do mural (roxo) e sol amarelo em degraus
+    [2, 24, 40, 44, C.ipe],
+    [22, 30, 14, 4, C.grafC],
+    [20, 34, 18, 10, C.grafC],
+    [22, 44, 14, 4, C.grafC],
+    [24, 34, 8, 4, C.papel], // brilho do sol
+    // raios chapados
+    [14, 36, 4, 3, C.grafC],
+    [40, 36, 2, 3, C.grafC],
+    [24, 22, 6, 3, C.grafC],
+    // serra ao fundo (dois morros)
+    [2, 56, 18, 12, C.grafB],
+    [8, 50, 10, 6, C.grafB],
+    [24, 58, 18, 10, C.verde],
+    [30, 52, 9, 6, C.verde],
+    // mar em faixas
+    [2, 68, 40, 8, C.azul],
+    [2, 76, 40, 6, C.azulL],
+    [2, 82, 40, 6, C.azul],
+    // campo quente da metade de baixo
+    [0, 88, 44, 34, C.grafA],
+    [0, 122, 22, 27, C.grafC],
+    [22, 122, 22, 27, C.ipe],
   ]
   for (const [dx, dy, dw, dh, cor] of m) r(x + dx, topo + dy, dw, dh, cor)
-  // Grafismo por cima: faixas e chevrons claros amarrando as manchas. A 44px
-  // de largura, figura vira borrão — geometria continua legível.
-  r(x + 2, topo + 52, 40, 3, C.papel)
-  r(x + 6, topo + 106, 32, 3, C.papel)
+  // A pomba branca — asas abertas em chevron, corpo de manchas grandes
+  r(x + 10, topo + 96, 24, 6, C.papel)
+  r(x + 6, topo + 92, 10, 4, C.papel)
+  r(x + 28, topo + 92, 10, 4, C.papel)
+  r(x + 2, topo + 88, 8, 4, C.papel)
+  r(x + 34, topo + 88, 8, 4, C.papel)
+  r(x + 18, topo + 102, 8, 4, C.papel)
+  r(x + 20, topo + 106, 4, 3, C.grafC) // bico/pé estilizado
+  // grafismo amarrando: chevrons na base e faixa no topo
+  r(x + 2, topo + 20, 40, 2, C.papel)
   for (let i = 0; i < 5; i++) {
-    r(x + 4 + i * 8, topo + 70, 4, 4, C.papel)
-    r(x + 8 + i * 8, topo + 74, 4, 4, C.papel)
+    r(x + 4 + i * 8, topo + 130, 4, 4, C.papel)
+    r(x + 8 + i * 8, topo + 134, 4, 4, C.papel)
   }
-  r(x + 12, topo + 90, 20, 12, C.papel)
-  r(x + 16, topo + 94, 12, 4, C.grafA)
+  r(x + 4, topo + 114, 36, 2, C.papel)
 }
 
 function skyline(f) {
@@ -410,6 +523,7 @@ function skyline(f) {
     caixa: true,
     vaoChance: 0.35,
   })
+  pombasCeu(f)
   faixaPredios(f, {
     semente: 61,
     wMin: 24,
@@ -430,6 +544,9 @@ function skyline(f) {
     caixa: true,
     antena: true,
     sacada: true,
+    arCond: true,
+    tijolo: true,
+    vidroEsp: true,
     vaoChance: 0.75, // vão largo: é por aqui que os planos de trás aparecem
   })
   predioMural(f)
@@ -448,7 +565,7 @@ function fioPendurado({ p }, x1, y1, x2, y2, barriga, cor) {
 }
 
 function fiacao(f) {
-  const { r } = f
+  const { r, p } = f
   const postes = [88, 268, 452, 606]
   for (const x of postes) {
     r(x, 100, 3, MURO_Y - 100, C.poste)
@@ -459,10 +576,20 @@ function fiacao(f) {
     r(x - 5, 108, 1, 2, C.metalS)
     r(x + 7, 108, 1, 2, C.metalS)
     if (x === 268) {
+      // transformador: barrigudo, com aletas e pingo de ferrugem
       r(x + 4, 128, 7, 10, C.metal)
       r(x + 4, 128, 7, 1, C.metalL)
       r(x + 10, 129, 1, 9, C.metalS)
+      r(x + 3, 130, 1, 6, C.metalS)
+      r(x + 5, 131, 5, 1, C.metalS)
+      r(x + 5, 134, 5, 1, C.metalS)
+      p(x + 9, 137, C.tijoloS)
     }
+    // plaquinha de concessionária e mancha de ferrugem no pé do poste
+    r(x - 1, 146, 5, 4, C.amarelo)
+    r(x - 1, 149, 5, 1, C.amareloS)
+    p(x + 1, 170, C.tijoloS)
+    r(x, 178, 2, 2, C.posteS)
   }
   const pts = [-24, ...postes, LARG + 24]
   for (let i = 0; i < pts.length - 1; i++) {
@@ -470,6 +597,37 @@ function fiacao(f) {
     fioPendurado(f, pts[i], 113, pts[i + 1], 113, 10, C.fio)
     fioPendurado(f, pts[i], 122, pts[i + 1], 122, 6, C.fio)
     fioPendurado(f, pts[i], 123, pts[i + 1], 123, 12, C.fio)
+  }
+
+  // Altura do fio em qualquer x — a MESMA catenária de cima, pra pendurar
+  // coisa no fio sem chutar coordenada.
+  const yFio = (x, y0, barriga) => {
+    let i = 0
+    while (i < pts.length - 2 && x > pts[i + 1]) i++
+    const t = (x - pts[i]) / (pts[i + 1] - pts[i])
+    return Math.round(y0 + barriga * Math.sin(Math.PI * t))
+  }
+
+  // O tênis pendurado — rito de passagem de toda fiação paulistana.
+  {
+    const tx = 352
+    const ty = yFio(tx, 113, 10)
+    r(tx, ty, 1, 4, C.fio)
+    r(tx + 3, ty, 1, 5, C.fio)
+    r(tx - 3, ty + 4, 5, 3, C.papel)
+    r(tx - 4, ty + 5, 2, 2, C.papel)
+    r(tx - 3, ty + 6, 5, 1, C.vermelho)
+    r(tx + 2, ty + 5, 4, 3, C.papel)
+    r(tx + 5, ty + 6, 2, 2, C.papel)
+    r(tx + 2, ty + 7, 5, 1, C.vermelho)
+  }
+
+  // Pombos no fio: silhueta de 4px, cinza do fio — figurante, não ator.
+  for (const px of [176, 189, 196, 330, 338, 512, 583]) {
+    const py = yFio(px, 111, 7)
+    r(px - 1, py - 3, 3, 2, C.fio)
+    p(px + 1, py - 4, C.fio)
+    p(px - 2, py - 2, C.fio)
   }
 }
 
@@ -503,8 +661,62 @@ function muro(f) {
     r(x, MURO_Y + 5, w, h, C.muroS)
     r(x + 1, MURO_Y + 5, 1, h + 4, C.muroS)
   }
+  // Escorrido de chuva: risco fino nascendo na sombra do capeamento. É o
+  // detalhe que diz "esse muro tomou 30 anos de garoa".
+  const re = rnd(13)
+  for (let ex = 9; ex < LARG; ex += 15 + Math.floor(re() * 16)) {
+    const comp = 3 + Math.floor(re() * 9)
+    r(ex, MURO_Y + 5, 1, comp, C.capaS)
+    if (re() < 0.45) r(ex + 1, MURO_Y + 5, 1, Math.max(2, comp - 3), C.muroS)
+  }
   r(0, base - 7, LARG, 6, C.muroS)
   r(0, base - 1, LARG, 1, C.muroBase)
+
+  // Reboco descascado: buraco em degrau mostrando o tijolo por baixo, com
+  // fiada marcada e a borda quebrada do reboco pegando luz em cima.
+  for (const [px, py] of [
+    [170, 214],
+    [378, 219],
+    [598, 217],
+  ]) {
+    r(px, py, 12, 9, C.tijolo)
+    r(px + 2, py - 2, 8, 2, C.tijolo)
+    r(px - 2, py + 3, 2, 5, C.tijolo)
+    for (let fy = py + 2; fy < py + 9; fy += 3) r(px, fy, 12, 1, C.tijoloS)
+    p(px + 5, py + 1, C.tijoloT)
+    p(px + 8, py + 4, C.tijoloT)
+    r(px + 1, py - 3, 9, 1, C.muroL) // borda do reboco pegando luz
+    r(px + 12, py + 1, 1, 8, C.muroS) // e sombreando à direita
+    r(px, py + 9, 12, 1, C.muroS)
+  }
+
+  // Mancha de umidade subindo do rodapé: cluster em degrau, nunca ruído.
+  for (const [mx, mw] of [
+    [102, 26],
+    [218, 16],
+    [340, 13],
+    [486, 20],
+    [634, 6],
+  ]) {
+    r(mx, 246, mw, 4, C.muroS)
+    r(mx + 3, 243, mw - 7, 3, C.muroS)
+    r(mx + Math.floor(mw * 0.55), 241, 4, 2, C.muroS)
+    r(mx + 2, 248, mw - 4, 2, C.muroBase)
+  }
+
+  // Placa esmaltada de rua: azul, borda clara, "texto" em traços de 2px.
+  r(107, 197, 32, 12, C.azul)
+  r(107, 197, 32, 1, C.azulL)
+  r(108, 208, 31, 1, C.azulS)
+  r(138, 198, 1, 10, C.azulS)
+  for (const [tx, tw] of [
+    [111, 8],
+    [121, 5],
+    [128, 7],
+  ])
+    r(tx, 200, tw, 2, C.papel)
+  r(113, 204, 20, 2, C.papel)
+  r(107, 209, 32, 1, C.muroS) // sombra da placa no reboco
 
   // Pichação e grafite: traço fino e lavado. Não pode competir com o pombo.
   for (const [tx, ty, cor] of [
@@ -568,27 +780,63 @@ function calcada(f) {
   r(0, CALCADA_Y, LARG, GUIA_Y - CALCADA_Y, C.pedra)
   r(0, CALCADA_Y, LARG, 1, C.pedraS)
 
-  for (let x = 0; x < LARG; x++) {
-    const yA = 264 + Math.round(4 * Math.sin(x / 7.4))
-    r(x, yA, 1, 5, C.pedraEsc)
-    p(x, yA, C.pedraEscL)
-    const yB = 282 + Math.round(3 * Math.sin((x + 26) / 7.4))
-    r(x, yB, 1, 4, C.pedraEsc)
-    p(x, yB, C.pedraEscL)
+  // Mato crescendo na junta do muro com a calçada — praça de verdade tem.
+  const rm = rnd(41)
+  for (let x = 3; x < LARG; x += 5 + Math.floor(rm() * 9)) {
+    p(x, CALCADA_Y - 1, C.folha)
+    p(x + 1, CALCADA_Y - 2, C.folhaL)
+    if (rm() < 0.4) {
+      p(x - 1, CALCADA_Y - 1, C.folhaL)
+      p(x + 1, CALCADA_Y - 3, C.folha)
+    }
   }
 
-  // Textura: pedra portuguesa é pedrinha quadrada. Ponto em GRADE, esparso —
-  // nunca ruído denso, que é o que faz cenário parecer JPEG.
+  // A onda da pedra portuguesa, agora pedrinha por pedrinha: mosaico de
+  // 2x2 em xadrez de três tons + fio de rejunte claro no topo da faixa.
+  for (let x = 0; x < LARG; x += 2) {
+    const yA = 264 + Math.round(4 * Math.sin(x / 7.4))
+    const t = (x >> 1) % 2 === 0
+    r(x, yA, 2, 2, t ? C.pedraEscL : C.pedraEsc)
+    r(x, yA + 2, 2, 2, t ? C.pedraEsc : C.pedraEscD)
+    r(x, yA + 4, 2, 1, t ? C.pedraEscD : C.pedraEsc)
+    p(x, yA - 1, C.pedraS) // rejunte
+    const yB = 282 + Math.round(3 * Math.sin((x + 26) / 7.4))
+    r(x, yB, 2, 2, t ? C.pedraEsc : C.pedraEscL)
+    r(x, yB + 2, 2, 2, t ? C.pedraEscD : C.pedraEsc)
+    p(x, yB - 1, C.pedraS)
+  }
+
+  // Campo claro: pedrinha sugerida em GRADE esparsa, dois tons — o claro
+  // acende, o médio assenta. Nunca ruído denso.
   const rr = rnd(17)
   for (let y = CALCADA_Y + 2; y < GUIA_Y; y += 3)
-    for (let x = y % 6 === 0 ? 0 : 2; x < LARG; x += 4) if (rr() < 0.35) p(x, y, C.pedraS)
+    for (let x = y % 6 === 0 ? 0 : 2; x < LARG; x += 4) {
+      const s = rr()
+      if (s < 0.3) p(x, y, C.pedraS)
+      else if (s < 0.42) r(x, y, 2, 1, C.pedraL)
+    }
 
   r(0, GUIA_Y, LARG, 1, C.pedra)
   r(0, GUIA_Y + 1, LARG, 3, C.guia)
   r(0, GUIA_Y + 3, LARG, 1, C.guiaF)
+  // boca de lobo: o buraco escuro na guia que todo pombo já explorou
+  for (const bx of [246, 556]) {
+    r(bx, GUIA_Y + 1, 18, 3, C.asfaltoS)
+    r(bx + 1, GUIA_Y + 2, 16, 2, '#3a3840')
+    r(bx, GUIA_Y + 1, 18, 1, C.guiaF)
+  }
+  // capim na fresta da guia
+  for (const gx of [88, 306, 470, 610]) {
+    p(gx, GUIA_Y, C.folha)
+    p(gx + 1, GUIA_Y - 1, C.folhaL)
+    p(gx - 1, GUIA_Y + 1, C.folha)
+  }
   r(0, RUA_Y, LARG, ALT - RUA_Y, C.asfalto)
   r(0, RUA_Y, LARG, 2, C.asfaltoS)
   for (let x = 0; x < LARG; x += 3) if (rnd(x + 5)() < 0.28) p(x, RUA_Y + 5 + (x % 7), C.asfaltoL)
+  // remendo de asfalto: a cicatriz retangular clássica
+  r(96, RUA_Y + 4, 34, 7, C.asfaltoS)
+  r(97, RUA_Y + 5, 32, 5, C.asfaltoL)
   r(0, RUA_Y + 9, LARG, 1, C.asfaltoS)
 }
 
@@ -607,7 +855,7 @@ function sombraChao({ r, a }, x, w) {
    madeira também é o único marrom quente no meio do trecho, o que ajuda a
    separar o banco do muro claro atrás. */
 function banco(f, x) {
-  const { r, cont, bloco } = f
+  const { r, p, cont, bloco } = f
   const w = 52
   const topo = 237
   sombraChao(f, x - 2, w + 4)
@@ -618,12 +866,26 @@ function banco(f, x) {
     bloco(px - 1, CHAO - 4, 10, 4, C.conc, C.concL, C.concS)
     cont(px - 1, CHAO - 4, 10, 4)
   }
+  // sombra que o assento joga no muro e nos pés — ancora o tampo no volume
+  f.a(0.13)
+  f.r(x + 1, topo + 9, w - 2, 3, '#2b2a3e')
+  f.a(1)
   // assento: três ripas com fresta escura de 1px entre elas
+  const rv = rnd(x * 13)
   for (let i = 0; i < 3; i++) {
     const y = topo + i * 3
     r(x, y, w, 2, C.madeira)
     r(x, y, w, 1, C.madeiraL)
+    // veio: risquinho quebrado dentro da ripa, nunca linha corrida
+    for (let vx = x + 3 + Math.floor(rv() * 6); vx < x + w - 5; vx += 8 + Math.floor(rv() * 7))
+      r(vx, y + 1, 2 + Math.floor(rv() * 3), 1, C.madeiraS)
     if (i < 2) r(x, y + 2, w, 1, C.madeiraS)
+  }
+  // nó da madeira e parafusos sobre os pés
+  p(x + 17 + Math.floor(rv() * 18), topo + 4, C.madeiraS)
+  for (const px of [x + 8, x + 42]) {
+    p(px, topo + 1, C.metalS)
+    p(px, topo + 7, C.metalS)
   }
   cont(x, topo, w, 8)
   sup(x, w, topo)
@@ -663,14 +925,33 @@ function banca(f) {
   for (let i = 0; i < 11; i++) r(vx + 3 + i, vy + 13 - i, 2, 1, C.vidroL)
   for (let i = 0; i < 7; i++) r(vx + 17 + i, vy + 16 - i, 2, 1, C.vidroL)
 
+  // Toldo listrado sobre a vidraça, com barra recortada e sombra própria.
+  r(x + 5, topo + 8, 46, 4, C.verde)
+  r(x + 5, topo + 8, 46, 1, C.verdeL)
+  for (let i = 0; i < 5; i++) r(x + 9 + i * 9, topo + 8, 4, 4, C.papel)
+  for (let i = 0; i < 8; i++) p(x + 7 + i * 6, topo + 12, i % 2 ? C.papel : C.verdeS)
+  cont(x + 5, topo + 8, 46, 4, C.KS)
+  r(x + 6, topo + 13, 44, 1, C.verdeS) // sombra do toldo no corpo
+
+  // Jornais dependurados no varal da lateral: manchete, foto e prendedor.
   r(x + 50, topo + 16, 18, 26, C.verdeS)
   cont(x + 50, topo + 16, 18, 26)
+  r(x + 51, topo + 17, 16, 1, C.madeiraS) // varal
   for (let i = 0; i < 3; i++) {
-    r(x + 52 + i * 6, topo + 18, 5, 11, C.papel)
-    r(x + 52 + i * 6, topo + 21, 5, 1, C.KS)
-    r(x + 52 + i * 6, topo + 25, 5, 1, C.KS)
+    const jx = x + 52 + i * 6
+    r(jx, topo + 18, 5, 11, C.papel)
+    p(jx + 2, topo + 17, C.madeira) // prendedor
+    r(jx, topo + 19, 5, 1, C.KS) // manchete gorda
+    r(jx + 1, topo + 21, 3, 2, i === 1 ? C.azul : C.grafA) // foto
+    r(jx, topo + 25, 5, 1, C.KS)
+    r(jx, topo + 27, 3, 1, C.KS)
   }
   r(x + 4, CHAO - 4, w - 8, 3, C.verdeS)
+  // banquinho do jornaleiro espiando na porta
+  r(x + 58, CHAO - 10, 8, 2, C.madeira)
+  r(x + 58, CHAO - 10, 8, 1, C.madeiraL)
+  r(x + 59, CHAO - 8, 1, 8, C.madeiraS)
+  r(x + 64, CHAO - 8, 1, 8, C.madeiraS)
 }
 
 function orelhao(f) {
@@ -721,16 +1002,40 @@ function orelhao(f) {
   r(cx - 8, topo + 7, 10, 10, C.metal)
   r(cx - 8, topo + 7, 10, 1, C.metalL)
   r(cx - 7, topo + 9, 5, 4, C.vidroS) // visor
+  r(cx - 6, topo + 9, 2, 1, C.vidro) // visor aceso no canto de luz
   r(cx - 7, topo + 14, 5, 2, C.metalS) // teclado
+  p(cx - 6, topo + 14, C.metalL)
+  p(cx - 4, topo + 14, C.metalL)
   r(cx - 1, topo + 8, 2, 7, C.KS) // fone no gancho
   r(cx - 3, topo + 8, 2, 1, C.KS)
   r(cx - 3, topo + 14, 2, 1, C.KS)
+  // fio do fone, enrolado de preguiça
+  p(cx, topo + 16, C.KS)
+  p(cx - 1, topo + 17, C.KS)
+  p(cx, topo + 18, C.KS)
+
+  // Brilho de fibra: o casulo é plástico lustroso — um arco aceso no ombro
+  // de cima-à-esquerda, chapado, e pronto.
+  r(cx - 10, topo + 3, 2, 4, C.laranjaBri)
+  r(cx - 8, topo + 2, 2, 2, C.laranjaBri)
+  p(cx - 6, topo + 1, C.laranjaBri)
+
+  // Adesivos colados na lateral direita — todo orelhão de praça tem.
+  r(cx + 6, topo + 8, 3, 3, C.papel)
+  p(cx + 7, topo + 9, C.grafA)
+  r(cx + 4, topo + 13, 4, 2, C.azulL)
+  r(cx + 8, topo + 17, 3, 2, C.amarelo)
 }
 
 function posteLuz(f) {
-  const { r, cont } = f
+  const { r, p, cont } = f
   const x = 146
   sombraChao(f, x - 3, 9)
+  // sombra comprida do poste na calçada, tombada pra direita
+  f.a(0.1)
+  f.r(x + 3, CHAO + 2, 26, 2, '#2b2a2e')
+  f.r(x + 25, CHAO + 4, 10, 1, '#2b2a2e')
+  f.a(1)
   // Haste de 3px SEM contorno preto: com contorno viraria uma coluna quase
   // preta de 5px cortando a praça no meio. O próprio tom escuro já recorta.
   r(x, 158, 1, CHAO - 158, C.metalL)
@@ -749,10 +1054,18 @@ function posteLuz(f) {
   r(x + 8, 154, 9, 2, C.amarelo)
   r(x + 9, 156, 7, 1, C.amareloS)
   sup(x + 6, 13, 150)
+  // plaquinha de patrimônio e ferrugem escorrida na haste
+  r(x - 1, 206, 5, 6, C.azul)
+  r(x - 1, 206, 5, 1, C.azulL)
+  r(x, 208, 3, 1, C.papel)
+  p(x + 2, 212, C.tijoloS)
+  p(x + 2, 236, C.tijoloS)
+  r(x + 2, 252, 1, 4, C.tijoloS)
+  p(x + 1, 256, C.tijoloS)
 }
 
 function coreto(f) {
-  const { r, cont, bloco } = f
+  const { r, p, cont, bloco } = f
   const cx = 294
   const topoLanterna = 174
   const yEave = 200
@@ -764,10 +1077,22 @@ function coreto(f) {
   bloco(cx - 16, 264, 32, 6, C.conc, C.concL, C.concS)
   cont(cx - 16, 264, 32, 6)
 
+  // Fundo do vão: piso de tábua corrida e o guarda-corpo DE TRÁS, lavado —
+  // é o que dá dentro/fora pro coreto antes mesmo da penumbra.
+  r(cx - 56, 244, 112, 12, C.madeira)
+  r(cx - 56, 244, 112, 1, C.madeiraL)
+  for (let bx = cx - 56; bx < cx + 56; bx += 9) r(bx, 245, 1, 11, C.madeiraS)
+  r(cx - 56, 234, 112, 2, C.verdeS)
+  for (let bx = cx - 53; bx < cx + 54; bx += 7) r(bx, 236, 1, 8, C.verdeS)
+
   // Meia-luz por baixo da cobertura: sem isso o vão do coreto fica com o
   // mesmo creme do muro e o coreto vira moldura vazada em vez de abrigo.
-  f.a(0.1)
+  f.a(0.16)
   f.r(cx - 56, 202, 112, 54, '#2b2a3a')
+  f.a(1)
+  // sombra do beiral: mais funda logo abaixo da aba, e só ali
+  f.a(0.14)
+  f.r(cx - 56, 204, 112, 5, '#2b2a3a')
   f.a(1)
 
   for (const dx of [-56, -34, -12, 10, 32, 54]) {
@@ -775,30 +1100,40 @@ function coreto(f) {
     r(cx + dx, 202, 1, 54, C.verdeL)
     r(cx + dx + 3, 203, 1, 53, C.verdeS)
     cont(cx + dx, 202, 4, 54)
+    // tinta lascada mostrando a madeira crua — desgaste em pontos, não ruído
+    p(cx + dx + 1, 214 + ((dx * 7) % 23 + 23) % 23, C.madeiraL)
+    p(cx + dx + 2, 244 - ((dx * 5) % 17 + 17) % 17, C.madeira)
   }
   for (const dx of [-52, -30, -8, 14, 36]) {
-    r(cx + dx, 236, 18, 2, C.verde)
-    r(cx + dx, 236, 18, 1, C.verdeL)
+    // corrimão de madeira com veio, sobre balaústres verdes
+    r(cx + dx, 235, 18, 3, C.madeira)
+    r(cx + dx, 235, 18, 1, C.madeiraL)
+    r(cx + dx + 3, 237, 5, 1, C.madeiraS)
+    r(cx + dx + 11, 236, 4, 1, C.madeiraS)
     r(cx + dx, 252, 18, 2, C.verde)
     r(cx + dx, 252, 18, 1, C.verdeL)
     for (let i = 0; i < 6; i++) r(cx + dx + 1 + i * 3, 238, 2, 14, C.verdeS)
   }
 
-  // Telhado: cone em degraus. Cada linha é uma fiada de telha — o degrau
-  // horizontal É o pixel. Só a parte NOVA de cada fiada vira superfície:
-  // é exatamente a silhueta que se vê.
+  // Telhado: cone em degraus, agora telha a telha. Cada fiada tem 3 linhas:
+  // duas de pano + uma de sombra; o pano leva risquinhos no passo da telha,
+  // andando meia telha por fiada (como tijolo). A rampa desce de telhaL no
+  // topo até telhaV (vinho, hue shift) na barriga da aba.
   const linhas = yEave - 179
   const hwDe = (i) => Math.round(11 + 47 * Math.pow(i / linhas, 1.35))
   for (let i = 0; i <= linhas; i++) {
     const hw = hwDe(i)
     const y = 179 + i
     tapa(cx - hw - 1, hw * 2 + 2, y)
-    r(cx - hw, y, hw * 2, 1, i % 3 === 2 ? C.telhaS : C.telha)
-    r(cx - hw + 1, y, Math.max(1, Math.round(hw * 0.34)), 1, i % 3 === 2 ? C.telhaS : C.telhaL)
-    for (const k of [0.38, 0.74, 1]) {
-      const dx = Math.round(hw * k)
-      r(cx - dx, y, 1, 1, C.telhaS)
-      r(cx + dx - 1, y, 1, 1, C.telhaS)
+    const fiada = Math.floor(i / 3)
+    const separo = i % 3 === 2
+    const fundo = i > 16 ? C.telhaS : C.telha
+    r(cx - hw, y, hw * 2, 1, separo ? (i > 15 ? C.telhaV : C.telhaS) : fundo)
+    if (!separo) {
+      r(cx - hw + 1, y, Math.max(1, Math.round(hw * (i < 8 ? 0.5 : 0.32))), 1, i > 16 ? C.telha : C.telhaL)
+      for (let tx = cx - hw + 3 + (fiada % 2) * 3; tx < cx + hw - 1; tx += 6)
+        p(tx, y, i > 16 ? C.telhaV : C.telhaS)
+      r(cx + hw - 2, y, 2, 1, i > 15 ? C.telhaV : C.telhaS)
     }
     if (i > 0) {
       const ant = hwDe(i - 1)
@@ -812,7 +1147,8 @@ function coreto(f) {
       r(cx + hw, y, 1, 1, C.K)
     }
   }
-  r(cx - 60, yEave + 1, 120, 2, C.telhaS)
+  r(cx - 60, yEave + 1, 120, 1, C.telhaS)
+  r(cx - 60, yEave + 2, 120, 1, C.telhaV) // barriga da aba: o vinho da sombra
   cont(cx - 60, yEave + 1, 120, 2)
   r(cx - 58, yEave + 3, 116, 1, C.verdeS)
 
@@ -945,11 +1281,18 @@ function jardineiraIpe(f) {
     r(cxT - hw, y, hw * 2, 1, C.tronco)
     r(cxT - hw, y, 2, 1, C.troncoL)
     r(cxT + hw - 1, y, 1, 1, C.troncoS)
+    // veio da casca: risco quebrado descendo pelo lado da sombra
+    if (y % 5 === 2) p(cxT + hw - 3, y, C.troncoS)
+    if (y % 7 === 3) p(cxT - hw + 2, y, C.troncoL)
     if (y > 214) {
       p(cxT - hw - 1, y, C.K)
       p(cxT + hw, y, C.K)
     }
   }
+  // cicatriz de poda e oco no tronco
+  r(cxT - 2, 232, 3, 4, C.troncoS)
+  p(cxT - 1, 233, C.K)
+  r(cxT + 1, 220, 2, 2, C.troncoS)
   for (const [gx, gy, gw] of [
     [cxT - 17, 195, 15],
     [cxT + 4, 190, 15],
@@ -960,6 +1303,16 @@ function jardineiraIpe(f) {
     r(gx, gy, gw, 1, C.troncoL)
   }
   copaIpe(f, cxT)
+  // Galho aparecendo POR DENTRO da copa: risco de casca atravessando a
+  // folhagem onde ela abre — é o esqueleto que a referência sempre mostra.
+  for (const [ax, ay, bx, by] of [
+    [cxT - 4, 206, cxT - 18, 192],
+    [cxT + 3, 203, cxT + 16, 191],
+    [cxT - 1, 199, cxT - 7, 181],
+  ]) {
+    const n = Math.max(Math.abs(bx - ax), Math.abs(by - ay))
+    for (let i = 0; i <= n; i++) p(ax + ((bx - ax) * i) / n, ay + ((by - ay) * i) / n, C.troncoS)
+  }
 
   sombraChao(f, x - 2, w + 4)
   bloco(x, topo, w, CHAO - topo, C.azulejo, '#f4f2eb', C.azulejoS)
@@ -978,13 +1331,31 @@ function jardineiraIpe(f) {
   for (let i = 0; i < 24; i++) r(x + 4 + Math.floor(rr() * (w - 8)), topo + 2, 1, 3, rr() < 0.5 ? C.folha : C.folhaL)
   sup(x, w, topo)
 
-  // flor caída: o ipê pinta a calçada de roxo embaixo dele
-  for (let i = 0; i < 30; i++) {
+  // flor caída: o ipê pinta a calçada de roxo embaixo dele — tapete denso
+  // no pé do tronco, ralo nas beiradas, e uma ou outra pétala dupla
+  for (let i = 0; i < 34; i++) {
     const fx = Math.round(cxT - 46 + rr() * 92)
     const fy = CHAO + 1 + Math.floor(rr() * 18)
     p(fx, fy, rr() < 0.5 ? C.ipe : C.ipeL)
     if (rr() < 0.3) p(fx + 1, fy, C.ipeS)
   }
+  for (let i = 0; i < 26; i++) {
+    const fx = Math.round(cxT - 24 + rr() * 48)
+    const fy = CHAO + 1 + Math.floor(rr() * 9)
+    r(fx, fy, rr() < 0.4 ? 2 : 1, 1, rr() < 0.55 ? C.flor : C.ipeL)
+  }
+  // pétalas pousadas na jardineira e no banco vizinho
+  for (const [fx, fy] of [
+    [x + 12, topo - 1],
+    [x + 30, topo - 1],
+    [x + 51, topo - 1],
+    [x + 40, topo + 2],
+    [404, 236],
+    [409, 237],
+    [399, 238],
+  ])
+    p(fx, fy, C.flor)
+  p(x + 31, topo - 1, C.ipeL)
 }
 
 function pontoOnibus(f) {
@@ -1010,9 +1381,15 @@ function pontoOnibus(f) {
   r(x + 44, topo + 12, 16, 24, C.papel)
   cont(x + 44, topo + 12, 16, 24, C.KS)
   r(x + 46, topo + 14, 12, 9, C.grafA)
+  r(x + 48, topo + 16, 5, 3, C.papel) // figura do cartaz
   r(x + 46, topo + 25, 12, 1, C.KS)
   r(x + 46, topo + 28, 9, 1, C.KS)
   r(x + 46, topo + 31, 11, 1, C.KS)
+  // pichação no vidro do abrigo — fina, meio apagada
+  r(x + 12, topo + 36, 2, 2, C.pich)
+  r(x + 15, topo + 34, 2, 2, C.pich)
+  r(x + 18, topo + 37, 2, 2, C.pich)
+  r(x + 14, topo + 36, 1, 1, C.pich)
   bloco(x + 12, topo + 42, 26, 3, C.metal, C.metalL, C.metalS)
   cont(x + 12, topo + 42, 26, 3)
   r(x + 14, topo + 45, 2, 12, C.metalS)
@@ -1045,7 +1422,7 @@ function placa(f) {
 }
 
 function lixeira(f) {
-  const { r, cont, bloco } = f
+  const { r, p, cont, bloco } = f
   const x = 612
   const w = 18
   const topo = 228
@@ -1053,10 +1430,58 @@ function lixeira(f) {
   bloco(x + 1, topo + 5, w - 2, CHAO - topo - 5, C.verde, C.verdeL, C.verdeS)
   cont(x + 1, topo + 5, w - 2, CHAO - topo - 5)
   for (let i = 0; i < 4; i++) r(x + 3 + i * 4, topo + 9, 2, CHAO - topo - 14, C.verdeS)
+  // adesivo torto e lasca de tinta
+  r(x + 5, topo + 16, 4, 3, C.papel)
+  p(x + 6, topo + 17, C.grafB)
+  p(x + 13, topo + 24, C.metal)
   bloco(x, topo, w, 5, C.verde, C.verdeL, C.verdeS)
   cont(x, topo, w, 5)
   r(x + 6, topo + 1, 6, 1, C.verdeS)
+  // ponta de saco de lixo escapando da tampa
+  r(x + 12, topo + 4, 4, 2, C.papel)
+  p(x + 15, topo + 5, C.KS)
   sup(x, w, topo)
+  // sujeirinha ao pé — papel amassado e mancha
+  p(x - 3, CHAO + 2, C.papel)
+  r(x + 19, CHAO + 1, 2, 1, C.papel)
+  p(x + 20, CHAO + 2, C.capaS)
+}
+
+/* Hidrante: o anão vermelho da calçada. Topo achatado de propósito — vira
+   poleiro baixo, registrado como superfície. */
+function hidrante(f) {
+  const { r, p, cont } = f
+  const x = 219
+  const topo = 254
+  sombraChao(f, x - 4, 16)
+  // corpo
+  r(x, topo + 4, 8, CHAO - topo - 4, C.vermelho)
+  r(x, topo + 4, 2, CHAO - topo - 4, C.vermelhoL)
+  r(x + 7, topo + 5, 1, CHAO - topo - 5, C.vermelhoS)
+  cont(x, topo + 4, 8, CHAO - topo - 4)
+  // bocais laterais com tampinha
+  r(x - 3, topo + 7, 3, 4, C.vermelhoS)
+  cont(x - 3, topo + 7, 3, 4)
+  p(x - 2, topo + 8, C.vermelho)
+  r(x + 8, topo + 7, 3, 4, C.vermelhoS)
+  cont(x + 8, topo + 7, 3, 4)
+  // domo achatado
+  r(x + 1, topo + 1, 6, 3, C.vermelho)
+  r(x + 2, topo, 4, 1, C.vermelhoL)
+  r(x + 1, topo + 1, 2, 2, C.vermelhoL)
+  r(x + 6, topo + 2, 1, 2, C.vermelhoS)
+  r(x + 2, topo - 1, 4, 1, C.K)
+  r(x + 1, topo, 1, 1, C.K)
+  r(x + 6, topo, 1, 1, C.K)
+  r(x, topo + 1, 1, 3, C.K)
+  r(x + 7, topo + 1, 1, 3, C.K)
+  // porca de cima e lasca de ferrugem
+  p(x + 3, topo + 1, C.vermelhoS)
+  p(x + 6, topo + 9, C.tijoloS)
+  // base
+  r(x - 1, CHAO - 3, 10, 3, C.vermelhoS)
+  cont(x - 1, CHAO - 3, 10, 3)
+  sup(x + 2, 4, topo)
 }
 
 /* O capeamento do muro só é poleiro ONDE ELE APARECE. Em vez de decorar uma

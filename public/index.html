@@ -10,14 +10,15 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🐦</text></svg>">
+<!-- O app.js troca o href pelo pombo pixel art assim que os ícones carregam. -->
+<link rel="icon" id="favicon" href="data:,">
 </head>
 <body>
 
 <!-- ─── portaria ─────────────────────────────────────────────── -->
 <section id="entrada">
   <div class="cartao">
-    <h1>🐦 Pombodoro</h1>
+    <h1><i data-icone="pombo" data-tam="32"></i> Pombodoro</h1>
     <p class="sub">A praça onde os pombos trabalham.</p>
 
     <!-- passo 1: quem é você? (os dois passos começam escondidos;
@@ -26,7 +27,7 @@
       <p class="login-chamada">Entre com sua conta pra guardar seu pombo, suas migalhas e suas tarefas em qualquer navegador.</p>
       <div id="botaoGoogle"></div>
       <p id="loginAviso" class="login-aviso" hidden></p>
-      <button type="button" id="btnConvidado" class="ghost">🐦 Continuar como convidado</button>
+      <button type="button" id="btnConvidado" class="ghost"><i data-icone="pombo" data-tam="16"></i> Continuar como convidado</button>
       <p class="login-nota">Convidado vale só neste navegador.</p>
     </div>
 
@@ -61,7 +62,7 @@
     </div>
 
     <!-- Sem sala (primeiro acesso): cria antes de pousar. -->
-    <button id="btnCriar" hidden>🏗️ Criar minha praça</button>
+    <button id="btnCriar" hidden><i data-icone="martelo" data-tam="14"></i> Criar minha praça</button>
 
     <!-- Com sala (veio por convite ou já criou): pousa. -->
     <button id="btnEntrar" hidden>Pousar na praça</button>
@@ -69,8 +70,8 @@
     <div class="rodape" id="rodapeSala" hidden>
       <div class="sala-codigo">Praça <b id="codigoPreview">—</b></div>
       <div class="rodape-acoes">
-        <button type="button" id="btnCopiarPraca" class="chip">🔗 copiar convite</button>
-        <button type="button" id="btnNovaPraca" class="chip">🎲 nova praça</button>
+        <button type="button" id="btnCopiarPraca" class="chip"><i data-icone="link" data-tam="12"></i> copiar convite</button>
+        <button type="button" id="btnNovaPraca" class="chip"><i data-icone="dado" data-tam="12"></i> nova praça</button>
       </div>
     </div>
     </div><!-- /passoPombo -->
@@ -89,7 +90,7 @@
       <div id="placarTop3" class="placar-top3"></div>
     </div>
     <div class="acoes">
-      <button id="btnPlay" title="Continuar">▶</button>
+      <button id="btnPlay" title="Continuar"><i data-icone="play" data-tam="24"></i></button>
       <button id="btnReset" class="ghost" title="Zerar">↺</button>
       <div class="ajustes">
         <label>foco <input id="slFoco" type="range" min="1" max="60" step="1" value="30"> <b id="vFoco">30m</b></label>
@@ -99,12 +100,12 @@
   </header>
 
   <main>
-    <button type="button" id="toggleTarefas" class="aba-toggle esquerda" title="Mostrar/esconder mural">📋</button>
-    <button type="button" id="toggleControles" class="aba-toggle direita" title="Mostrar/esconder controles">🎛</button>
-
+    <!-- Os puxadores moram DENTRO de cada aba, pendurados pra fora da borda:
+         deslizam junto com ela e nunca cobrem o conteúdo. -->
     <aside id="asideTarefas">
+      <button type="button" id="toggleTarefas" class="aba-toggle esquerda" title="Mostrar/esconder mural"><i data-icone="mural" data-tam="14"></i></button>
       <div class="bloco cresce">
-        <h2>Mural 📋</h2>
+        <h2><i data-icone="mural" data-tam="14"></i> Mural</h2>
         <div id="tarefaAtualBox" class="tarefa-atual" hidden>
           <small>fazendo neste ciclo</small>
           <div class="texto" id="tarefaAtualTexto"></div>
@@ -127,18 +128,19 @@
     </div>
 
     <aside id="asideControles">
+      <button type="button" id="toggleControles" class="aba-toggle direita" title="Mostrar/esconder controles"><i data-icone="painel" data-tam="14"></i></button>
       <div class="bloco" id="blocoRadio">
-        <h2>Rádio da praça 📻</h2>
+        <h2><i data-icone="radio" data-tam="14"></i> Rádio da praça</h2>
         <div id="ytwrap"><div id="ytplayer"></div></div>
-        <div id="radioInfo" class="radio-info">Fila vazia — cola um link aí 👇</div>
+        <div id="radioInfo" class="radio-info">Fila vazia — cola um link aí embaixo</div>
         <div class="radio-controles">
           <div class="grupo transporte" title="Controla a música pra sala inteira">
-            <button id="rPrev" class="ghost" title="Anterior (sala)">⏮</button>
-            <button id="rPlay" class="ghost" title="Tocar / pausar (sala)">▶</button>
-            <button id="rNext" class="ghost" title="Próxima (sala)">⏭</button>
+            <button id="rPrev" class="ghost" title="Anterior (sala)"><i data-icone="ant" data-tam="24"></i></button>
+            <button id="rPlay" class="ghost" title="Tocar / pausar (sala)"><i data-icone="play" data-tam="24"></i></button>
+            <button id="rNext" class="ghost" title="Próxima (sala)"><i data-icone="prox" data-tam="24"></i></button>
           </div>
           <div class="grupo volume" title="Só afeta o SEU som — cada pombo tem o seu">
-            <button id="btnSom" class="ghost" title="Mudo (só você)">🔇</button>
+            <button id="btnSom" class="ghost" title="Mudo (só você)"><i data-icone="mudo" data-tam="24"></i></button>
             <input id="slVol" type="range" min="0" max="100" value="60" title="Volume (só você)">
           </div>
         </div>
@@ -148,7 +150,7 @@
         </form>
       </div>
       <div class="bloco cresce">
-        <h2>Fila de reprodução 🎶</h2>
+        <h2><i data-icone="nota" data-tam="12"></i> Fila de reprodução</h2>
         <ol id="fila"></ol>
       </div>
     </aside>
@@ -156,7 +158,7 @@
 
   <footer>
     <div class="rodape-esquerda">
-      <span id="migalhasIndicador" class="migalhas-indicador" title="Suas migalhas">🍞 <b id="minhasMigalhas">0</b></span>
+      <span id="migalhasIndicador" class="migalhas-indicador" title="Suas migalhas"><i data-icone="pao" data-tam="14"></i> <b id="minhasMigalhas">0</b></span>
     </div>
     <div class="rodape-centro">
       <div id="flutuantes"></div>
@@ -165,11 +167,11 @@
         <input id="inputMural" maxlength="200" autocomplete="off">
         <button id="btnEnviar">Piar</button>
       </form>
-      <button id="btnSortear" class="ghost" title="Sorteia um pombo presente na praça">🎲 Sortear</button>
+      <button id="btnSortear" class="ghost" title="Sorteia um pombo presente na praça"><i data-icone="dado" data-tam="12"></i> Sortear</button>
     </div>
     <div class="rodape-direita">
-      <button id="btnLink" class="ghost">🔗 Copiar convite</button>
-      <button id="btnSair" class="ghost" title="Sair da praça (as migalhas ficam guardadas)">🚪 Sair</button>
+      <button id="btnLink" class="ghost"><i data-icone="link" data-tam="12"></i> Copiar convite</button>
+      <button id="btnSair" class="ghost" title="Sair da praça (as migalhas ficam guardadas)"><i data-icone="porta" data-tam="14"></i> Sair</button>
     </div>
   </footer>
 
@@ -178,7 +180,7 @@
   <!-- ─── modal: escolher tarefa do ciclo ─────────────────────── -->
   <div id="modalTarefa" class="modal" hidden>
     <div class="modal-caixa">
-      <h3>🐦 Novo ciclo de foco</h3>
+      <h3><i data-icone="pombo" data-tam="16"></i> Novo ciclo de foco</h3>
       <p>Qual tarefa você vai focar agora?</p>
       <ul id="modalListaTarefas"></ul>
       <form id="formTarefaRapida">
@@ -192,11 +194,11 @@
   <!-- ─── modal: confirmar conclusão ao fim do foco ───────────── -->
   <div id="modalConfirmarTarefa" class="modal" hidden>
     <div class="modal-caixa">
-      <h3>⏱ Fim do foco</h3>
+      <h3><i data-icone="relogio" data-tam="14"></i> Fim do foco</h3>
       <p>Você concluiu <b>"<span id="confirmarTarefaTexto"></span>"</b>?</p>
       <div class="modal-acoes">
-        <button type="button" id="btnTarefaConcluida">✅ Concluí</button>
-        <button type="button" id="btnTarefaEmAndamento" class="ghost">↩️ Ainda não</button>
+        <button type="button" id="btnTarefaConcluida"><i data-icone="check" data-tam="12"></i> Concluí</button>
+        <button type="button" id="btnTarefaEmAndamento" class="ghost">Ainda não</button>
       </div>
     </div>
   </div>

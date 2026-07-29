@@ -28,7 +28,7 @@ if (!process.env.SESSION_SECRET) console.warn('[pombodoro] SESSION_SECRET ausent
 
 // Bump a cada mudança de física/protocolo: clientes com versão diferente
 // recarregam sozinhos — acaba o pombo fantasma de aba desatualizada.
-const VERSAO_APP = 17
+const VERSAO_APP = 18
 
 /* ─────────────────────────── regras da praça ─────────────────────────── */
 
@@ -40,8 +40,8 @@ const MAX_AMIGOS_BONUS = 3
 const MAX_SPRINTS_DIA = 8
 const TOLERANCIA_QUEDA_SEC = 120 // reconectou em até 2min? o sprint continua valendo
 const SOME_DA_PRACA_SEC = 600 // offline há 10min: sai do desenho, mantém as migalhas
-const ALCANCE_SOCO = 26 // px lógicos
-const EMPURRAO_SOCO = 14
+const ALCANCE_SOCO = 38 // px lógicos (pombo agora tem 36 de largura)
+const EMPURRAO_SOCO = 20
 
 function chaveDoDia(nowMs = Date.now()) {
   return new Date(nowMs).toISOString().slice(0, 10)
@@ -688,7 +688,7 @@ io.on('connection', (socket) => {
       const vitimas = []
       for (const outro of sala.jogadores.values()) {
         if (outro === jogador || outro.saiu || !Number.isFinite(outro.posX)) continue
-        if (Math.abs(outro.posX - jogador.posX) > 18) continue
+        if (Math.abs(outro.posX - jogador.posX) > 26) continue
         if ((outro.posAlt || 0) < (jogador.posAlt || 0)) continue
         vitimas.push(outro.id)
       }
@@ -779,6 +779,18 @@ io.on('connection', (socket) => {
     } else if (acao === 'ir') {
       const i = Number(payload.indice)
       if (r.fila[i]) tocarFaixa(r, i)
+    } else if (acao === 'mover') {
+      // Reordenação por arrasto: o servidor aplica — a fila é da sala,
+      // não do navegador de quem arrastou.
+      const de = Number(payload.de)
+      const para = Number(payload.para)
+      if (!r.fila[de] || !r.fila[para] || de === para) return
+      const [faixa] = r.fila.splice(de, 1)
+      r.fila.splice(para, 0, faixa)
+      // O índice aponta pra faixa atual, onde quer que ela pare.
+      if (r.indice === de) r.indice = para
+      else if (de < r.indice && para >= r.indice) r.indice -= 1
+      else if (de > r.indice && para <= r.indice) r.indice += 1
     } else if (acao === 'remover') {
       const i = Number(payload.indice)
       if (!r.fila[i]) return

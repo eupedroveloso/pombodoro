@@ -1,9 +1,25 @@
 import { CORPOS, CRISTAS, ACESSORIOS, spriteCanvas } from './sprites.js'
 import { iniciarCena, atualizarCena, dispararEmote, aplicarPosRemota, aplicarSoco, aplicarCoco, dispararFala, ajustarZoom, explodirPombo } from './cena.js'
+import { iconeHtml, iconeCanvas, montarIcones, EMOTE_ICONES } from './icones.js'
 
 const $ = (id) => document.getElementById(id)
-const VERSAO_APP = 17
+const VERSAO_APP = 18
+// A string do emoji continua sendo o ID no protocolo (o servidor repassa
+// como veio); só a EXIBIÇÃO vira ícone pixel art (EMOTE_ICONES).
 const EMOTES = ['👍', '🔥', '☕', '😵', '🍞', '🎧']
+
+// Hidrata os <i data-icone> do HTML e troca o favicon pelo pombo pixel art.
+montarIcones()
+$('favicon').href = iconeCanvas('pombo', 2).toDataURL('image/png')
+
+/* Mensagens do servidor ainda vêm com emoji no texto — a UI é 100% pixel
+   art, então a exibição limpa o que for pictográfico antes de mostrar. */
+function semEmoji(t) {
+  return String(t)
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu, '')
+    .replace(/ {2,}/g, ' ')
+    .trim()
+}
 
 /* ─── identidade ───────────────────────────────────────────── */
 /* Duas vidas possíveis: logado (conta Google — o pombo mora no servidor e
@@ -105,8 +121,9 @@ function montarAcessorios() {
     cv.height = 30
     const cx = cv.getContext('2d')
     cx.imageSmoothingEnabled = false
+    // Enquadra a CABEÇA (centro ~[9,8] na grade 36x34) — é onde o acessório mora.
     const img = spriteCanvas('parado', eu.corpo, eu.crista, i)
-    cx.drawImage(img, -6, 2, img.width * 1.6, img.height * 1.6)
+    cx.drawImage(img, 4, 5, img.width * 1.2, img.height * 1.2)
     b.append(cv)
     b.onclick = () => {
       eu.acessorio = i
@@ -192,7 +209,7 @@ async function aoReceberCredencial(resposta) {
     adotarConta(corpo.user)
   } catch (e) {
     $('loginAviso').hidden = false
-    $('loginAviso').textContent = `⚠️ ${e.message}`
+    $('loginAviso').innerHTML = `${iconeHtml('aviso', 12)} ${escapar(e.message)}`
   }
 }
 
@@ -260,11 +277,11 @@ function entrarNaPraca() {
    com fundo translúcido). Cada uma some pra fora da tela ao "esconder" —
    a preferência fica salva por navegador, não por sala. */
 
-function alternarAba(el, chave, botao, iconeAberta) {
+function alternarAba(el, chave, botao, icone) {
   const fechada = el.classList.toggle('recolhida')
   localStorage.setItem(`pombodoro-aba-${chave}`, fechada ? '0' : '1')
   botao.title = fechada ? `Mostrar ${chave === 'tarefas' ? 'mural' : 'controles'}` : `Esconder ${chave === 'tarefas' ? 'mural' : 'controles'}`
-  botao.textContent = fechada ? iconeAberta : (chave === 'tarefas' ? '‹' : '›')
+  botao.innerHTML = fechada ? iconeHtml(icone, 14) : (chave === 'tarefas' ? '‹' : '›')
 }
 
 function aplicarPreferenciaAbas() {
@@ -272,12 +289,12 @@ function aplicarPreferenciaAbas() {
   const controlesFechada = localStorage.getItem('pombodoro-aba-controles') === '0'
   $('asideTarefas').classList.toggle('recolhida', tarefasFechada)
   $('asideControles').classList.toggle('recolhida', controlesFechada)
-  $('toggleTarefas').textContent = tarefasFechada ? '📋' : '‹'
-  $('toggleControles').textContent = controlesFechada ? '🎛' : '›'
+  $('toggleTarefas').innerHTML = tarefasFechada ? iconeHtml('mural', 14) : '‹'
+  $('toggleControles').innerHTML = controlesFechada ? iconeHtml('painel', 14) : '›'
 }
 
-$('toggleTarefas').onclick = () => alternarAba($('asideTarefas'), 'tarefas', $('toggleTarefas'), '📋')
-$('toggleControles').onclick = () => alternarAba($('asideControles'), 'controles', $('toggleControles'), '🎛')
+$('toggleTarefas').onclick = () => alternarAba($('asideTarefas'), 'tarefas', $('toggleTarefas'), 'mural')
+$('toggleControles').onclick = () => alternarAba($('asideControles'), 'controles', $('toggleControles'), 'painel')
 
 /** Sair é diferente de fechar a aba: o servidor tira o pombo do desenho na
     hora e o sprint em andamento não conta. As migalhas continuam guardadas. */
@@ -396,13 +413,13 @@ socket.on('soco', (p) => aplicarSoco(p))
 socket.on('coco', (p) => aplicarCoco(p))
 socket.on('explodiu', ({ id, x }) => explodirPombo(id, x))
 socket.on('recusado', (msg) => toast(msg))
-socket.on('sorteado', ({ nome }) => toast(`🎲 Deu ${nome}!`))
+socket.on('sorteado', ({ nome }) => toast(`Deu ${nome}!`))
 
 socket.on('creditado', ({ ganho, bando, total }) => {
   toast(
     bando > 0
-      ? `Sprint fechado! +${ganho} 🍞 (10 base + ${ganho - 10} de bando) · total ${total}`
-      : `Sprint fechado! +${ganho} 🍞 · total ${total}`
+      ? `Sprint fechado! +${ganho} migalhas (10 base + ${ganho - 10} de bando) · total ${total}`
+      : `Sprint fechado! +${ganho} migalhas · total ${total}`
   )
   pedirRecado()
 })
@@ -434,14 +451,19 @@ setInterval(() => {
     : ultimo.fase === 'foco'
       ? 'até a pausa'
       : 'até o próximo sprint'
-  document.title = `${ultimo.rodando ? $('relogio').textContent : '⏸'} · Pombodoro`
+  document.title = `${ultimo.rodando ? $('relogio').textContent : 'pausado'} · Pombodoro`
 }, 250)
 
 /* ─── painéis ──────────────────────────────────────────────── */
 
 function montarControles(s) {
-  $('btnPlay').textContent = s.rodando ? '⏸' : '▶'
-  $('btnPlay').title = s.rodando ? 'Pausar' : 'Continuar'
+  // Só re-renderiza o ícone quando o estado muda ('estado' chega toda hora).
+  const st = s.rodando ? 'pausa' : 'play'
+  if ($('btnPlay').dataset.st !== st) {
+    $('btnPlay').dataset.st = st
+    $('btnPlay').innerHTML = iconeHtml(st, 24)
+    $('btnPlay').title = s.rodando ? 'Pausar' : 'Continuar'
+  }
 
   // Não puxa o slider da mão de quem está arrastando.
   const ativo = document.activeElement
@@ -474,7 +496,7 @@ function montarPlacar(s) {
       (j, i) => `<span class="chip-placar ${j.id === eu.id ? 'eu' : ''}">
         <span class="pos">${i + 1}º</span>
         <i class="ponto" style="background:${CRISTAS[j.crista % CRISTAS.length]}"></i>
-        <b>${escapar(j.nome)}</b> ${j.migalhas}🍞
+        <b>${escapar(j.nome)}</b> ${j.migalhas} ${iconeHtml('pao', 14)}
       </span>`
     )
     .join('')
@@ -509,7 +531,7 @@ function flutuarMensagem(m) {
   el.className = `flutuante ${m.tipo}`
   el.innerHTML =
     m.tipo === 'sistema'
-      ? escapar(m.texto)
+      ? escapar(semEmoji(m.texto))
       : m.tipo === 'recado'
         ? `<b>${escapar(m.de)}</b> fez: ${escapar(m.texto)}`
         : `<b>${escapar(m.de)}</b> ${escapar(m.texto)}`
@@ -524,7 +546,7 @@ function aplicarTravaDoMural(s) {
   const travado = s.fase === 'foco' && s.rodando
   $('inputMural').disabled = travado
   $('btnEnviar').disabled = travado
-  $('inputMural').placeholder = travado ? 'O mural abre na pausa 🔒' : 'Piar alguma coisa…'
+  $('inputMural').placeholder = travado ? 'O mural abre na pausa' : 'Piar alguma coisa…'
 }
 
 /* ─── mural de tarefas ─────────────────────────────────────── */
@@ -545,8 +567,8 @@ function tarefaHtml(t) {
   if (t.status === 'concluida') {
     botoes.push(`<button type="button" data-ac="reabrir" title="Reabrir">↺</button>`)
   } else {
-    if (t.id !== tarefaAtualId) botoes.push(`<button type="button" data-ac="selecionar" title="Usar nesse ciclo">▶</button>`)
-    botoes.push(`<button type="button" data-ac="concluir" title="Marcar concluída">✔</button>`)
+    if (t.id !== tarefaAtualId) botoes.push(`<button type="button" data-ac="selecionar" title="Usar nesse ciclo">${iconeHtml('play', 12)}</button>`)
+    botoes.push(`<button type="button" data-ac="concluir" title="Marcar concluída">${iconeHtml('check', 12)}</button>`)
   }
   botoes.push(`<button type="button" data-ac="duplicar" title="Duplicar">⧉</button>`)
   botoes.push(`<button type="button" data-ac="excluir" title="Excluir">✕</button>`)
@@ -563,7 +585,7 @@ function renderTarefas() {
   const ordenada = ordenarTarefas(minhasTarefas)
   $('listaTarefas').innerHTML = ordenada.length
     ? ordenada.map(tarefaHtml).join('')
-    : '<li class="tarefa" style="cursor:default">Nenhuma tarefa ainda — adiciona aí em cima ☝</li>'
+    : '<li class="tarefa" style="cursor:default">Nenhuma tarefa ainda — adiciona aí em cima</li>'
 
   const atual = minhasTarefas.find((t) => t.id === tarefaAtualId)
   $('tarefaAtualBox').hidden = !atual
@@ -619,7 +641,7 @@ function renderModalTarefa() {
     ? disponiveis
         .map((t) => `<li data-id="${t.id}"><span class="tag">${TAG_TAREFA[t.status]}</span><span>${escapar(t.texto)}</span></li>`)
         .join('')
-    : '<li class="vazia">Seu mural está vazio — cria uma tarefa aqui embaixo 👇</li>'
+    : '<li class="vazia">Seu mural está vazio — cria uma tarefa aqui embaixo</li>'
 }
 
 $('modalListaTarefas').onclick = (ev) => {
@@ -651,9 +673,9 @@ $('btnTarefaEmAndamento').onclick = () => {
 
 /* ─── interações ───────────────────────────────────────────── */
 
-$('emotes').innerHTML = EMOTES.map((e) => `<button data-e="${e}">${e}</button>`).join('')
+$('emotes').innerHTML = EMOTES.map((e) => `<button data-e="${e}" title="${EMOTE_ICONES[e]}">${iconeHtml(EMOTE_ICONES[e], 28)}</button>`).join('')
 $('emotes').onclick = (ev) => {
-  const emoji = ev.target.dataset.e
+  const emoji = ev.target.closest('button[data-e]')?.dataset.e
   if (emoji) socket.emit('emote', { emoji })
 }
 
@@ -669,7 +691,7 @@ $('btnLink').onclick = async () => {
   const url = `${location.origin}/r/${codigo}`
   try {
     await navigator.clipboard.writeText(url)
-    toast('Convite copiado! Manda pros pombos. 🔗')
+    toast('Convite copiado! Manda pros pombos.')
   } catch {
     prompt('Copie o convite:', url)
   }
@@ -765,14 +787,18 @@ function formatarDuracao(seg) {
 
 function montarRadio(r) {
   const faixa = r.fila[r.indice]
-  $('rPlay').textContent = r.tocando ? '⏸' : '▶'
+  const st = r.tocando ? 'pausa' : 'play'
+  if ($('rPlay').dataset.st !== st) {
+    $('rPlay').dataset.st = st
+    $('rPlay').innerHTML = iconeHtml(st, 24)
+  }
   $('radioInfo').innerHTML = faixa
     ? `<b>${escapar(faixa.titulo)}</b> · pedida por ${escapar(faixa.de)}`
-    : 'Fila vazia — cola um link aí 👇'
+    : 'Fila vazia — cola um link aí embaixo'
   $('fila').innerHTML = r.fila
     .map((f, i) => {
       const dur = duracoes.get(f.videoId)
-      return `<li class="${i === r.indice ? 'atual' : i < r.indice ? 'passada' : ''}">
+      return `<li draggable="true" data-idx="${i}" class="${i === r.indice ? 'atual' : i < r.indice ? 'passada' : ''}">
         ${f.imagem ? `<img src="${f.imagem}" alt="" loading="lazy">` : ''}
         <div class="info">
           <span class="t" data-i="${i}" title="Tocar esta">${escapar(f.titulo)}</span>
@@ -792,7 +818,7 @@ $('btnSom').onclick = () => {
   if (!playerPronto) return
   mutado = !mutado
   mutado ? player.mute() : player.unMute()
-  $('btnSom').textContent = mutado ? '🔇' : '🔊'
+  $('btnSom').innerHTML = iconeHtml(mutado ? 'mudo' : 'som', 24)
 }
 
 // Volume é local, como o mudo. Mexer no slider com o som mudo já desmuta —
@@ -806,11 +832,11 @@ $('slVol').addEventListener('input', () => {
   if (v > 0 && mutado) {
     mutado = false
     player.unMute()
-    $('btnSom').textContent = '🔊'
+    $('btnSom').innerHTML = iconeHtml('som', 24)
   } else if (v === 0 && !mutado) {
     mutado = true
     player.mute()
-    $('btnSom').textContent = '🔇'
+    $('btnSom').innerHTML = iconeHtml('mudo', 24)
   }
 })
 
@@ -829,9 +855,45 @@ $('fila').onclick = (ev) => {
   else if (ir !== undefined) socket.emit('radio', { acao: 'ir', indice: +ir })
 }
 
+/* Arrastar pra reordenar: o navegador só anima; quem muda a fila de verdade
+   é o servidor (evento 'mover'), porque a ordem é da sala inteira. */
+let arrastandoIdx = null
+
+$('fila').addEventListener('dragstart', (ev) => {
+  const li = ev.target.closest('li[data-idx]')
+  if (!li) return
+  arrastandoIdx = +li.dataset.idx
+  li.classList.add('arrastando')
+  ev.dataTransfer.effectAllowed = 'move'
+  ev.dataTransfer.setData('text/plain', li.dataset.idx) // Firefox exige um payload
+})
+
+$('fila').addEventListener('dragover', (ev) => {
+  if (arrastandoIdx === null) return
+  ev.preventDefault() // sem isso o drop nunca dispara
+  ev.dataTransfer.dropEffect = 'move'
+  const alvo = ev.target.closest('li[data-idx]')
+  for (const el of $('fila').children) {
+    el.classList.toggle('alvo-drop', el === alvo && +alvo.dataset.idx !== arrastandoIdx)
+  }
+})
+
+$('fila').addEventListener('drop', (ev) => {
+  ev.preventDefault()
+  const alvo = ev.target.closest('li[data-idx]')
+  if (alvo && arrastandoIdx !== null && +alvo.dataset.idx !== arrastandoIdx) {
+    socket.emit('radio', { acao: 'mover', de: arrastandoIdx, para: +alvo.dataset.idx })
+  }
+})
+
+$('fila').addEventListener('dragend', () => {
+  arrastandoIdx = null
+  for (const el of $('fila').children) el.classList.remove('alvo-drop', 'arrastando')
+})
+
 /* Pombo-correio: o recado de uma linha vira o log de trabalho do time. */
 function pedirRecado() {
-  const texto = prompt('🕊️ Pombo-correio — o que você fez nesse sprint?')
+  const texto = prompt('Pombo-correio — o que você fez nesse sprint?')
   if (texto?.trim()) socket.emit('recado', { texto: texto.trim() })
 }
 
@@ -840,7 +902,7 @@ function pedirRecado() {
 let toastTimer
 function toast(msg) {
   const el = $('toast')
-  el.textContent = msg
+  el.textContent = semEmoji(msg)
   el.hidden = false
   clearTimeout(toastTimer)
   toastTimer = setTimeout(() => (el.hidden = true), 5000)

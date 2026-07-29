@@ -1,5 +1,6 @@
 import { spriteCanvas, CRISTAS, CORPOS, PALETA } from './sprites.js'
 import { pintarEmCanvas, niveisEm, LARG, ALT, CHAO } from './cenario.js'
+import { EMOTE_ICONES, iconeCanvas } from './icones.js'
 
 /* A cena é desenhada num canvas lógico de 640x320 e depois ampliada por um
    fator INTEIRO. É isso que mantém o pixel quadrado em qualquer tela.
@@ -10,7 +11,7 @@ import { pintarEmCanvas, niveisEm, LARG, ALT, CHAO } from './cenario.js'
    reamostrado, e é por isso que os pombos pareciam colados: pixel borrado
    por baixo, pixel duro por cima. */
 
-const SPRITE = 24 // largura do pombo
+const SPRITE = 36 // largura do pombo (grade 36x34)
 const LINHA_CHAO = CHAO // meio da faixa de pedra portuguesa
 
 const SUJEIRA_MAX = 5 // no nível máximo o pombo desaparece debaixo do cocô
@@ -21,16 +22,18 @@ const COCO_MONTE_MAX = 80 // monte BEM grande: acumula bastante antes de parar d
 const COCO_VIDA_CHEIA_MS = 60000 // fica sólido por 1 minuto
 const COCO_FADE_MS = 15000 // depois começa a sumir aos poucos, ao longo de 15s
 
-/* Posição do "meio do olho" (coluna, linha) dentro do sprite, pra apagar
-   com a cor de contorno e simular a pálpebra fechando — mesmo truque que
-   o sprite 'dormindo' já usa (KK no lugar de WEW). Só nas poses com olho
-   aberto de verdade; dormindo/caído/tonto/bicando já têm estado ocular
-   próprio e ficam de fora. */
+/* Canto superior-esquerdo do olho (coluna, linha) por pose, pra desenhar a
+   pálpebra fechando (bloco K de 4x3 sobre o olho de 4x4) na piscada. Só nas
+   poses com olho aberto de verdade; dormindo/caído/tonto/traga/bebendo já
+   têm estado ocular próprio e ficam de fora. */
 const OLHO = {
-  parado: [7, 5], passo: [7, 6], sentado: [7, 5], sentado2: [7, 5], soco: [7, 5],
-  vooCima: [7, 5], vooBaixo: [7, 5],
-  fumando: [7, 5], fumando2: [7, 5], fumandoTraga: [7, 5],
-  cafeSegurando: [7, 5], cafeBebendo: [7, 5], cafeEnchendo: [7, 5],
+  parado: [6, 7], parado2: [6, 8],
+  passo: [6, 9], passo2: [6, 8], passo3: [6, 9], passo4: [6, 7],
+  sentado: [6, 9], sentado2: [6, 10], sentado3: [6, 9],
+  socoPrep: [7, 9], soco: [5, 8], soco2: [6, 8],
+  vooCima: [6, 7], vooMeio: [6, 7], vooBaixo: [6, 6],
+  fumando: [7, 7], fumando2: [7, 7],
+  cafeSegurando: [8, 7], cafeEnchendo: [8, 7],
 }
 
 let cv, ctx, off, offCtx
@@ -240,7 +243,7 @@ export function aplicarSoco({ id, x, dir, vitimas = [] }) {
     for (let i = 0; i < 7; i++) {
       particulas.push({
         x: v.x + SPRITE / 2,
-        y: LINHA_CHAO + v.alt - 10,
+        y: LINHA_CHAO + v.alt - 14,
         vx: (Math.random() - 0.5) * 2.6,
         vy: (Math.random() - 0.5) * 1.8,
         cor: ['#ffffff', '#ffe066', '#f5a623'][i % 3],
@@ -270,10 +273,10 @@ export function aplicarCoco({ id, x, dir, alt, vitimas = [] }) {
     v.redeEm = agora
   }
   // Sai do rabo, que fica do lado oposto ao que o pombo olha.
-  const rabinho = dir > 0 ? x + 4 : x + SPRITE - 4
+  const rabinho = dir > 0 ? x + 5 : x + SPRITE - 5
   pelotas.push({
     x: rabinho + (Math.random() - 0.5) * 3,
-    y: LINHA_CHAO + (alt || 0) - 5,
+    y: LINHA_CHAO + (alt || 0) - 8,
     vx: (Math.random() - 0.5) * 0.7 - dir * 0.25, // espirra pra trás
     vy: 0.35 + Math.random() * 0.5,
     vitimas,
@@ -289,7 +292,7 @@ export function explodirPombo(id, x) {
   const j = estado.jogadores.find((jj) => jj.id === id)
   const corpo = CORPOS[(j?.corpo || 0) % CORPOS.length]
   const px = (v ? v.x : x) + SPRITE / 2
-  const py = LINHA_CHAO + (v ? v.alt : 0) - 9
+  const py = LINHA_CHAO + (v ? v.alt : 0) - 13
   // O pombo SOME no instante do estouro — vira só fragmentos.
   if (v) v.explodiu = performance.now()
   // Sangue + pedaços da própria plumagem + faísca.
@@ -505,17 +508,18 @@ function quadro(agora) {
         sprite = v.vy !== 0 ? 'tonto' : 'caido'
         if (v.vy !== 0) espelhar = Math.floor(agora / 80) % 2 === 0
       } else {
-        sprite = 'dormindo'
+        sprite = Math.floor(agora / 1100) % 2 ? 'dormindo2' : 'dormindo'
       }
       y = LINHA_CHAO + Math.round(v.alt)
     } else if (trabalhando()) {
       // O foco pega o pombo ONDE ELE ESTÁ — até em cima do muro.
       x = Math.round(v.x)
       y = LINHA_CHAO + Math.round(v.alt)
-      const digitando = Math.floor(agora / 280) % 2
-      sprite = digitando ? 'sentado2' : 'sentado'
+      // Digitação em 4 tempos: repouso → teclado → meio → teclado.
+      const fase = Math.floor(agora / 200) % 4
+      sprite = ['sentado', 'sentado2', 'sentado3', 'sentado2'][fase]
       espelhar = false
-      desenharNotebook(x - 11, y + 1, digitando)
+      desenharNotebook(x - 16, y + 1, Math.floor(agora / 400) % 2)
     } else {
       // Três fontes de movimento, por prioridade: teclado (meu pombo),
       // servidor (pombo de outra pessoa) ou passeio automático.
@@ -542,14 +546,17 @@ function quadro(agora) {
       y = LINHA_CHAO + Math.round(v.alt)
       espelhar = v.dir > 0
       if (agora < v.socandoAte) {
-        // Dois tempos: recua engatilhando, depois cruza com avanço.
+        // Três tempos: engatilha (asa atrás), cruza com avanço, recolhe.
         const desde = 450 - (v.socandoAte - agora)
-        if (desde < 110) {
-          sprite = 'parado'
-          x += v.dir > 0 ? -2 : 2
-        } else {
+        if (desde < 120) {
+          sprite = 'socoPrep'
+          x += v.dir > 0 ? -3 : 3
+        } else if (desde < 320) {
           sprite = 'soco'
-          x += v.dir > 0 ? 3 : -3
+          x += v.dir > 0 ? 4 : -4
+        } else {
+          sprite = 'soco2'
+          x += v.dir > 0 ? 1 : -1
         }
       } else if (atordoado) {
         if (v.vy !== 0 || v.alt < alturaDoChaoSob(v.x, v.alt) - 0.5) {
@@ -568,8 +575,9 @@ function quadro(agora) {
         const ciclo = desde % 3200
         const tragando = ciclo < 500
         sprite = tragando ? 'fumandoTraga' : Math.floor(agora / 480) % 2 ? 'fumando2' : 'fumando'
-        const pontaX = x + (espelhar ? SPRITE - 1 : 1)
-        const pontaY = y - 15
+        // Ponta do cigarro pendurado: canto inferior do bico (x0,y12 na grade).
+        const pontaX = x + (espelhar ? SPRITE - 1 : 0)
+        const pontaY = y - 22
         if (tragando) {
           v.fumaFase = 'traga'
         } else if (v.fumaFase === 'traga') {
@@ -591,17 +599,21 @@ function quadro(agora) {
         const duracaoAcao = reabastecendo ? 900 : 480
         const emAcao = noCiclo < duracaoAcao
         sprite = emAcao ? (reabastecendo ? 'cafeEnchendo' : 'cafeBebendo') : 'cafeSegurando'
-        const canecaX = x + (espelhar ? SPRITE - 1 : 1)
-        const canecaY = y - 15
+        const canecaX = x + (espelhar ? SPRITE - 2 : 1)
+        const canecaY = y - 24 // boca da caneca (y10 na grade de 34)
         if (reabastecendo && emAcao) desenharTermica(canecaX, canecaY, espelhar)
         if (!emAcao && agora - v.cafeUltimoWisp > 500) {
           v.cafeUltimoWisp = agora
           emitirFumaca(canecaX, canecaY, false) // vapor do café — mesmo sistema da fumaça
         }
-      } else if (v.noAr) sprite = Math.floor(agora / 90) % 2 ? 'vooCima' : 'vooBaixo'
-      else if (v.bicandoLoop || agora < v.bicandoAte) sprite = Math.floor(agora / 130) % 2 ? 'bicando2' : 'bicando'
-      else if (v.dormindo) {
-        sprite = 'dormindo'
+      } else if (v.noAr) {
+        // Batida completa: cima → meio → baixo → meio (o meio amortece).
+        sprite = ['vooCima', 'vooMeio', 'vooBaixo', 'vooMeio'][Math.floor(agora / 90) % 4]
+      } else if (v.bicandoLoop || agora < v.bicandoAte) {
+        // Bicada em 3 tempos: antecipação → golpe no chão → recuperação.
+        sprite = ['bicando', 'bicando2', 'bicando3'][Math.floor(agora / 130) % 3]
+      } else if (v.dormindo) {
+        sprite = Math.floor(agora / 1100) % 2 ? 'dormindo2' : 'dormindo' // respiração lenta
         const desde = agora - (v.dormiuEm || agora)
         if (desde > 2500 && desde % 4200 < 260) x += Math.floor(agora / 50) % 2 ? 1 : -1
       } else if (v.dancando) {
@@ -609,8 +621,12 @@ function quadro(agora) {
         sprite = Math.floor(agora / 160) % 2 ? 'passo' : 'parado'
         espelhar = Math.floor(agora / 320) % 2 === 0
         y -= Math.floor(agora / 160) % 2 ? 2 : 0
-      } else if (v.andando) sprite = Math.floor(agora / 180) % 2 ? 'passo' : 'parado'
-      else sprite = 'parado'
+      } else if (v.andando) {
+        // Ciclo de 4 quadros: contato, sobe, cruza, sobe do outro lado.
+        sprite = ['passo', 'passo2', 'passo3', 'passo4'][Math.floor(agora / 140) % 4]
+      } else {
+        sprite = Math.floor(agora / 1600) % 2 ? 'parado2' : 'parado' // idle respira
+      }
     }
 
     // Pisca aleatório: cada pombo tem seu próprio relógio de piscada.
@@ -678,7 +694,7 @@ function passear(v, agora) {
   v.andando = true
 }
 
-const TETO = -(LINHA_CHAO - 26) // altura máxima de voo, em px lógicos
+const TETO = -(LINHA_CHAO - 44) // altura máxima de voo, em px lógicos (sprite de 34 cabe)
 
 /* ── colisão ─────────────────────────────────────────────────────────────
    Não existe mais tabela de plataformas escrita à mão. O cenario.js registra
@@ -691,10 +707,10 @@ const TETO = -(LINHA_CHAO - 26) // altura máxima de voo, em px lógicos
    de plataformas a cada pombo a cada quadro.
 
    Apoio é medido no CENTRO DAS PATAS, não no centro do sprite: as patas
-   ficam nas colunas 7..12 do sprite de 24px. Isso é o que faz o pombo poder
+   ficam nas colunas 10..18 do sprite de 36px. Isso é o que faz o pombo poder
    ficar na beiradinha do banco — como pombo de verdade fica — e cair no
    instante em que os pés passam da quina. */
-const PE = 10
+const PE = 14
 
 const colunaDe = (x) => niveisEm(x + PE)
 
@@ -888,28 +904,29 @@ function desenharSprite(nome, x, y, corpo, crista, acessorio, espelhar, piscando
     offCtx.drawImage(img, 0, 0)
     if (olho) {
       offCtx.fillStyle = PALETA.K
-      offCtx.fillRect(olho[0], olho[1], 2, 1)
+      offCtx.fillRect(olho[0], olho[1], 4, 3) // pálpebra cobre o olho 4x4, sobra a fresta de baixo
     }
     offCtx.restore()
   } else {
     offCtx.drawImage(img, px, py)
     if (olho) {
       offCtx.fillStyle = PALETA.K
-      offCtx.fillRect(px + olho[0], py + olho[1], 2, 1)
+      offCtx.fillRect(px + olho[0], py + olho[1], 4, 3)
     }
   }
 }
 
 function desenharNotebook(x, y, quadro) {
   const img = spriteCanvas(quadro ? 'notebook2' : 'notebook', 0, 0)
-  offCtx.drawImage(img, Math.round(Math.max(x, -8)), Math.round(y) - img.height)
+  offCtx.drawImage(img, Math.round(Math.max(x, -10)), Math.round(y) - img.height)
 }
 
-/** Garrafa térmica: só aparece no instante de reabastecer a caneca de café. */
+/** Garrafa térmica: só aparece no instante de reabastecer a caneca de café.
+    Recebe a posição da BOCA da caneca e paira logo acima, despejando. */
 function desenharTermica(x, y, espelhar) {
   const img = spriteCanvas('termica', 0, 0)
-  const px = Math.round(x) - (espelhar ? img.width - 1 : 1)
-  const py = Math.round(y) - img.height - 3
+  const px = Math.round(x) - (espelhar ? img.width - 2 : 2)
+  const py = Math.round(y) - img.height - 8
   offCtx.drawImage(img, px, py)
 }
 
@@ -917,23 +934,23 @@ function desenharTermica(x, y, espelhar) {
 /** Respingos possíveis, do topo da cabeça até a cauda — quanto maior o
     nível de sujeira, mais deles aparecem (até virar cobertura total). */
 const MANCHAS_SUJEIRA = [
-  [7, 3, 3, 2, '#f8f6ef'],
-  [7, 5, 3, 1, '#c9c2ae'],
-  [9, 5, 2, 2, '#f8f6ef'],
-  [13, 8, 2, 2, '#f8f6ef'],
-  [13, 10, 2, 1, '#c9c2ae'],
-  [6, 11, 2, 2, '#f8f6ef'],
-  [4, 9, 2, 2, '#f8f6ef'],
-  [16, 6, 2, 2, '#f8f6ef'],
-  [3, 6, 2, 2, '#f8f6ef'],
-  [10, 12, 3, 2, '#f8f6ef'],
-  [15, 3, 2, 2, '#f8f6ef'],
-  [5, 14, 3, 2, '#f8f6ef'],
+  [8, 4, 3, 2, '#f8f6ef'],
+  [8, 7, 3, 1, '#c9c2ae'],
+  [11, 6, 2, 2, '#f8f6ef'],
+  [17, 13, 3, 2, '#f8f6ef'],
+  [18, 15, 2, 1, '#c9c2ae'],
+  [7, 17, 2, 2, '#f8f6ef'],
+  [5, 13, 2, 2, '#f8f6ef'],
+  [22, 11, 3, 2, '#f8f6ef'],
+  [4, 8, 2, 2, '#f8f6ef'],
+  [13, 20, 3, 2, '#f8f6ef'],
+  [27, 12, 3, 2, '#f8f6ef'],
+  [8, 23, 3, 2, '#f8f6ef'],
 ]
 
 function desenharSujeira(x, y, nivel) {
   const px = Math.round(x)
-  const py = Math.round(y) - 19 // topo aproximado do sprite
+  const py = Math.round(y) - 33 // topo aproximado do sprite (grade de 34)
   const n = Math.min(Math.max(nivel || 1, 1), SUJEIRA_MAX - 1)
   const qtd = Math.min(2 + n * 2, MANCHAS_SUJEIRA.length)
   for (let i = 0; i < qtd; i++) {
@@ -948,8 +965,8 @@ function desenharSujeira(x, y, nivel) {
 function desenharCobertoDeCoco(x, y, piscando) {
   const px = Math.round(x)
   const py = Math.round(y) - 1 // base do montinho na linha dos pés
-  const larg = 20
-  const altura = 15
+  const larg = 28
+  const altura = 21
   offCtx.fillStyle = '#b9b3a0'
   offCtx.fillRect(px + SPRITE / 2 - Math.ceil(larg / 2), py, larg + 1, 1)
   for (let ry = 0; ry < altura; ry++) {
@@ -959,8 +976,8 @@ function desenharCobertoDeCoco(x, y, piscando) {
   }
   if (!piscando) {
     offCtx.fillStyle = PALETA.K
-    offCtx.fillRect(px + SPRITE / 2 - 6, py - altura + 2, 2, 2)
-    offCtx.fillRect(px + SPRITE / 2 + 4, py - altura + 2, 2, 2)
+    offCtx.fillRect(px + SPRITE / 2 - 8, py - altura + 3, 3, 3)
+    offCtx.fillRect(px + SPRITE / 2 + 5, py - altura + 3, 3, 3)
   }
 }
 
@@ -973,7 +990,7 @@ function animarPelotas(agora) {
     // Na altura da cabeça de quem está embaixo, a sujeira "pega" — e ACUMULA:
     // cada acerto novo sobe um nível e estende a duração. No nível máximo o
     // pombo fica completamente coberto (ver quadro()).
-    if (!p.aplicado && p.vitimas.length && p.y >= LINHA_CHAO - 16) {
+    if (!p.aplicado && p.vitimas.length && p.y >= LINHA_CHAO - 24) {
       p.aplicado = true
       for (const id of p.vitimas) {
         const vv = vistas.get(id)
@@ -1061,8 +1078,21 @@ function desenharRotulo({ j, v, x, y }, escala, agora) {
     const restante = v.emoteAte - agora
     const idade = 2600 - restante // emotes duram ~2.6s? usa pop nos primeiros 180ms
     const pop = idade < 180 ? 1.5 - (idade / 180) * 0.5 : 1
-    ctx.font = `${Math.round(11 * escala * pop)}px serif`
-    ctx.fillText(v.emote, cx + 8 * (escala / 4), topo - 10 * (escala / 4) + flutuar)
+    const ex = cx + 8 * (escala / 4)
+    const ey = topo - 10 * (escala / 4) + flutuar
+    const nomeIcone = EMOTE_ICONES[v.emote]
+    if (nomeIcone) {
+      // Emote em pixel art: o ícone é desenhado num canvas já no múltiplo
+      // inteiro (iconeCanvas cacheia por fator), então o drawImage é 1:1 —
+      // nítido em qualquer zoom, e o "pop" anda em degraus de pixel.
+      const fator = Math.max(1, Math.round(escala * 0.8 * pop))
+      const img = iconeCanvas(nomeIcone, fator)
+      ctx.drawImage(img, Math.round(ex - img.width / 2), Math.round(ey - img.height))
+    } else {
+      // Emote sem mapa (sala antiga, emoji desconhecido): texto como antes.
+      ctx.font = `${Math.round(11 * escala * pop)}px serif`
+      ctx.fillText(v.emote, ex, ey)
+    }
   } else if (v.emote) {
     v.emote = null
   }
