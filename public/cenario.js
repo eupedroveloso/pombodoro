@@ -819,6 +819,7 @@ function calcada(f) {
   r(0, GUIA_Y, LARG, 1, C.pedra)
   r(0, GUIA_Y + 1, LARG, 3, C.guia)
   r(0, GUIA_Y + 3, LARG, 1, C.guiaF)
+  for (let jx = 14; jx < LARG; jx += 26) r(jx, GUIA_Y + 1, 1, 3, C.guiaF) // junta da guia
   // boca de lobo: o buraco escuro na guia que todo pombo já explorou
   for (const bx of [246, 556]) {
     r(bx, GUIA_Y + 1, 18, 3, C.asfaltoS)
@@ -892,7 +893,7 @@ function banco(f, x) {
 }
 
 function banca(f) {
-  const { r, cont, bloco } = f
+  const { r, p, cont, bloco } = f
   const x = 24
   const w = 72
   const topo = 204
@@ -955,7 +956,7 @@ function banca(f) {
 }
 
 function orelhao(f) {
-  const { r, cont } = f
+  const { r, p, cont } = f
   const cx = 122
   const topo = 214
   sombraChao(f, cx - 8, 16)
@@ -1265,6 +1266,20 @@ function copaIpe(f, cxT) {
     const cor = t < 0.36 ? C.ipeL : t < 0.6 ? C.ipeS : t < 0.86 ? C.flor : C.ceuC
     r(px, py, 2 + Math.floor(rr() * 2), t < 0.86 ? 2 : 1, cor)
   }
+  // Cacho de flor DELIBERADO: buquê de 3 tons no ombro iluminado de alguns
+  // lobos — flor clara em cima, ipeL fazendo meia-sombra por baixo.
+  for (const [bx, by] of [
+    [cxT - 20, 189],
+    [cxT + 7, 185],
+    [cxT - 6, 200],
+    [cxT + 24, 196],
+    [cxT - 30, 202],
+  ]) {
+    r(bx, by, 4, 2, C.flor)
+    r(bx + 1, by - 1, 2, 1, C.flor)
+    r(bx - 1, by + 1, 2, 1, C.ipeL)
+    r(bx + 3, by + 2, 2, 1, C.ipeL)
+  }
 }
 
 function jardineiraIpe(f) {
@@ -1303,15 +1318,17 @@ function jardineiraIpe(f) {
     r(gx, gy, gw, 1, C.troncoL)
   }
   copaIpe(f, cxT)
-  // Galho aparecendo POR DENTRO da copa: risco de casca atravessando a
-  // folhagem onde ela abre — é o esqueleto que a referência sempre mostra.
-  for (const [ax, ay, bx, by] of [
-    [cxT - 4, 206, cxT - 18, 192],
-    [cxT + 3, 203, cxT + 16, 191],
-    [cxT - 1, 199, cxT - 7, 181],
+  // Toco de galho espiando nas ABERTURAS da copa: curto, grosso na base,
+  // sempre encostado num cluster de sombra — esqueleto sugerido, não risco.
+  for (const [ax, ay] of [
+    [cxT - 16, 206],
+    [cxT + 12, 209],
+    [cxT - 3, 214],
   ]) {
-    const n = Math.max(Math.abs(bx - ax), Math.abs(by - ay))
-    for (let i = 0; i <= n; i++) p(ax + ((bx - ax) * i) / n, ay + ((by - ay) * i) / n, C.troncoS)
+    r(ax, ay, 3, 1, C.troncoS)
+    r(ax + 1, ay - 1, 2, 1, C.troncoS)
+    p(ax + 3, ay - 2, C.tronco)
+    p(ax - 1, ay + 1, C.ipeK)
   }
 
   sombraChao(f, x - 2, w + 4)
@@ -1504,14 +1521,51 @@ function detalhes(f) {
     else if (t < 0.8) p(x, y, C.troncoS)
     else r(x, y, 2, 1, C.papel)
   }
-  // poça refletindo o céu
-  r(196, CHAO + 13, 22, 3, C.ceuC)
-  r(199, CHAO + 12, 15, 1, C.ceuC)
-  r(198, CHAO + 16, 18, 1, C.vidroS)
+  // poça refletindo o céu — com a nuvem dentro e a borda molhada escura
+  r(194, CHAO + 12, 26, 4, C.ceuC)
+  r(198, CHAO + 11, 16, 1, C.ceuC)
+  r(199, CHAO + 16, 14, 1, C.ceuC)
+  r(202, CHAO + 13, 7, 1, C.nuvem) // a nuvem na poça
+  r(197, CHAO + 14, 3, 1, C.ceuB)
+  r(212, CHAO + 15, 5, 1, C.ceuB)
+  r(196, CHAO + 17, 18, 1, C.pedraEscD) // borda molhada
+  r(193, CHAO + 12, 1, 4, C.pedraS)
+  // tampa de poço de visita: elipse em degraus com furos de grade
+  {
+    const tx = 322
+    const ty = CHAO + 10
+    r(tx + 3, ty, 8, 1, C.metalL)
+    r(tx, ty + 1, 14, 2, C.metal)
+    r(tx + 3, ty + 3, 8, 1, C.metalS)
+    r(tx + 1, ty + 3, 2, 1, C.KS)
+    r(tx + 11, ty + 3, 2, 1, C.KS)
+    for (let i = 0; i < 4; i++) p(tx + 3 + i * 3, ty + 1, C.metalS)
+    p(tx + 5, ty + 2, C.metalS)
+    p(tx + 8, ty + 2, C.metalS)
+  }
+  // chicletes e manchas: a constelação cinza de toda calçada paulistana
+  const rg = rnd(203)
+  for (let i = 0; i < 14; i++) {
+    const gx = Math.floor(rg() * LARG)
+    const gy = CALCADA_Y + 4 + Math.floor(rg() * 34)
+    r(gx, gy, rg() < 0.4 ? 2 : 1, 1, rg() < 0.5 ? C.capaS : C.guiaF)
+  }
   // bueiro
   r(340, RUA_Y + 11, 22, 6, C.asfaltoS)
   r(340, RUA_Y + 11, 22, 1, C.asfaltoL)
   for (let i = 0; i < 5; i++) r(343 + i * 4, RUA_Y + 13, 2, 2, C.asfalto)
+  // sarjeta: folha seca e pétala que o vento empurrou pra rua
+  for (const [sx, cor] of [
+    [148, C.folha],
+    [271, C.troncoS],
+    [438, C.ipe],
+    [452, C.flor],
+    [461, C.ipeL],
+    [583, C.folha],
+  ]) {
+    p(sx, RUA_Y + 2, cor)
+    if (sx % 2) p(sx + 1, RUA_Y + 3, cor)
+  }
 }
 
 /* ── composição ──────────────────────────────────────────────────────── */
@@ -1531,6 +1585,7 @@ export function pintarCena(g) {
   orelhao(f)
   posteLuz(f)
   banco(f, 160)
+  hidrante(f)
   coreto(f)
   banco(f, 360)
   jardineiraIpe(f)
