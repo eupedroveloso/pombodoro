@@ -1,7 +1,7 @@
 # 🐦 Pombodoro
 
 **A praça onde os pombos trabalham.** Pomodoro coletivo em pixel art — sprints
-sincronizados, migalhas por foco e bônus por focar em bando.
+sincronizados e migalhas por foco.
 
 ## Rodar
 
@@ -30,7 +30,6 @@ inteiro sem esperar meia hora. (Os bots fazem isso sozinhos ao entrar.)
 | | |
 |---|---|
 | Sprint completo | **10 migalhas** |
-| Bônus de bando | **+5 por amigo** que fechou o mesmo sprint (até 3 = +15) |
 | Sprint abandonado | **0** — não existe crédito parcial |
 | Teto diário | 8 sprints pontuados (4h de foco de verdade) |
 

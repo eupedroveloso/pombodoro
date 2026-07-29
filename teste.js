@@ -1,7 +1,7 @@
 /* Teste de ponta a ponta da regra que sustenta o produto:
-   3 pombos atravessam um sprint inteiro juntos e cada um recebe
-   10 (base) + 2 amigos × 5 = 20 migalhas. Também confere que o mural
-   fica trancado durante o foco.
+   3 pombos atravessam um sprint inteiro juntos e cada um recebe as
+   10 migalhas do sprint — sem bônus por estarem acompanhados. Também
+   confere que o mural fica trancado durante o foco.
    uso: node teste.js                                                      */
 
 import { io } from 'socket.io-client'
@@ -23,7 +23,7 @@ for (let i = 0; i < N; i++) {
   s.on('connect', () => s.emit('entrar', { codigo: SALA, id: `t${i}`, nome: `Pombo${i}`, corpo: i, crista: i }))
   s.on('creditado', (c) => {
     creditos.push({ quem: `Pombo${i}`, ...c })
-    console.log(`  🍞 Pombo${i} recebeu ${c.ganho} (base ${c.base} + bando ${c.bando})`)
+    console.log(`  🍞 Pombo${i} recebeu ${c.ganho}`)
   })
   s.on('recusado', () => recusas++)
 
@@ -63,9 +63,11 @@ setTimeout(() => {
     ? ok.push(`os ${N} pombos foram creditados (${creditos.length} créditos no total)`)
     : falhas.push(`creditados ${distintos.size}/${N} pombos distintos`)
 
-  const esperado = 10 + 5 * (N - 1)
+  // Sprint fechado vale 10, sozinho ou acompanhado — não existe mais bônus
+  // de bando. Se alguém reintroduzir o bônus sem querer, este teste cai.
+  const esperado = 10
   creditos.every((c) => c.ganho === esperado)
-    ? ok.push(`bônus de bando correto: ${esperado} migalhas cada`)
+    ? ok.push(`sprint pagou ${esperado} migalhas pra cada um, sem bônus de bando`)
     : falhas.push(`ganho errado: ${creditos.map((c) => c.ganho).join(', ')} (esperava ${esperado})`)
 
   recusas > 0

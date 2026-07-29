@@ -35,8 +35,6 @@ const VERSAO_APP = 20
 const FOCO_PADRAO = 30 * 60
 const PAUSA_PADRAO = 6 * 60
 const BASE_MIGALHAS = 10
-const BONUS_POR_AMIGO = 5
-const MAX_AMIGOS_BONUS = 3
 const MAX_SPRINTS_DIA = 8
 const TOLERANCIA_QUEDA_SEC = 120 // reconectou em até 2min? o sprint continua valendo
 const SOME_DA_PRACA_SEC = 600 // offline há 10min: sai do desenho, mantém as migalhas
@@ -58,9 +56,8 @@ function novoTimer(focusSec = FOCO_PADRAO, breakSec = PAUSA_PADRAO) {
    Cada jogador pode trocar o relógio da sala por um relógio PESSOAL, com a
    mesma autoridade no servidor e o mesmo padrão de tráfego: o cliente
    extrapola sobre o relógio do servidor e só recebe emissão nas viradas
-   (evento 'estadoSolo', direcionado só ao socket do dono). Pontua 10
-   migalhas por sprint completo, SEM bônus de bando — o bônus é o incentivo
-   do modo grupo. Vive só em memória (não persiste no banco): quem cair por
+   (evento 'estadoSolo', direcionado só ao socket do dono). Pontua as mesmas
+   10 migalhas por sprint completo que o relógio da sala. Vive só em memória (não persiste no banco): quem cair por
    mais de 2min perde o sprint de qualquer jeito. */
 function novoSolo(focusSec, breakSec) {
   return { ativo: true, fase: 'foco', restante: focusSec, rodando: false, focusSec, breakSec, focoValido: false }
@@ -1342,14 +1339,14 @@ function abrirSprint(sala) {
   }
 }
 
-/** Crédito de um sprint fechado — comum aos dois modos. A única diferença
-    é o `bando`: sempre 0 no solo, porque o bônus é o incentivo do grupo. */
-function creditar(j, bando, solo = false) {
+/** Crédito de um sprint fechado — idêntico nos dois modos: o relógio da sala
+    e o solo pagam as mesmas 10 migalhas. `solo` só muda o texto do aviso. */
+function creditar(j, solo = false) {
   if (j.dia !== chaveDoDia()) {
     j.dia = chaveDoDia()
     j.sprintsHoje = 0
   }
-  const ganho = BASE_MIGALHAS + BONUS_POR_AMIGO * bando
+  const ganho = BASE_MIGALHAS // valor único: sprint fechado é sprint fechado
   j.migalhas += ganho
   j.sprints += 1
   j.sprintsHoje += 1
@@ -1357,7 +1354,9 @@ function creditar(j, bando, solo = false) {
     io.to(j.socketId).emit('creditado', {
       ganho,
       base: BASE_MIGALHAS,
-      bando,
+      // 'bando' segue no payload zerado só pra não quebrar aba antiga aberta
+      // durante o deploy; o cliente novo nem olha pra ele.
+      bando: 0,
       solo,
       total: j.migalhas,
       restamHoje: MAX_SPRINTS_DIA - j.sprintsHoje,
@@ -1366,8 +1365,8 @@ function creditar(j, bando, solo = false) {
   return ganho
 }
 
-/** Fim do foco de um sprint SOLO: 10 migalhas secas, sem bando, mesmo teto
-    diário de 8 sprints (compartilhado com o modo sala). */
+/** Fim do foco de um sprint SOLO: as mesmas 10 migalhas do modo sala, e o
+    mesmo teto diário de 8 sprints (o teto é compartilhado entre os modos). */
 function fecharSprintSolo(sala, j) {
   const completou = j.solo.focoValido && j.online
   j.solo.focoValido = false
@@ -1380,22 +1379,23 @@ function fecharSprintSolo(sala, j) {
     j.sprintsHoje = 0
   }
   if (j.sprintsHoje < MAX_SPRINTS_DIA) {
-    const ganho = creditar(j, 0, true)
+    const ganho = creditar(j, true)
     anunciar(sala, `${j.nome} fechou um sprint solo · +${ganho} 🍞`)
   }
   salvar()
 }
 
 function fecharSprint(sala) {
-  // O bando é quem atravessou o foco junto. Quem já bateu o teto diário
-  // continua contando pro bônus dos outros — só não leva migalha.
+  // Sprint fechado vale o mesmo pra todo mundo: as migalhas são pelo foco
+  // que a pessoa entregou, não por quantos estavam junto. (Havia um bônus
+  // de +5 por amigo no mesmo sprint; foi retirado a pedido — a companhia da
+  // praça é o incentivo, não o placar.)
   const concluiram = [...sala.jogadores.values()].filter((j) => j.focoValido && j.online)
-  const bando = Math.min(Math.max(concluiram.length - 1, 0), MAX_AMIGOS_BONUS)
-  const ganho = BASE_MIGALHAS + BONUS_POR_AMIGO * bando
+  const ganho = BASE_MIGALHAS
   const premiados = concluiram.filter((j) => j.sprintsHoje < MAX_SPRINTS_DIA)
 
   for (const j of premiados) {
-    creditar(j, bando)
+    creditar(j)
     j.focoValido = false
   }
 
@@ -1414,7 +1414,7 @@ function fecharSprint(sala) {
       sala,
       premiados.length === 1
         ? `${nomes} fechou o sprint · +${ganho} 🍞`
-        : `${nomes} fecharam o sprint juntos · +${ganho} 🍞 cada (bando de ${concluiram.length})`
+        : `${nomes} fecharam o sprint juntos · +${ganho} 🍞 cada`
     )
   }
   salvar() // migalhas e/ou tarefas podem ter mudado mesmo sem premiados

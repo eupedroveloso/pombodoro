@@ -485,13 +485,11 @@ socket.on('recusado', (msg) => {
 })
 socket.on('sorteado', ({ nome }) => toast(`Deu ${nome}!`))
 
-socket.on('creditado', ({ ganho, bando, total, solo }) => {
+socket.on('creditado', ({ ganho, total, solo }) => {
   toast(
     solo
       ? `Sprint solo fechado! +${ganho} migalhas · total ${total}`
-      : bando > 0
-        ? `Sprint fechado! +${ganho} migalhas (10 base + ${ganho - 10} de bando) · total ${total}`
-        : `Sprint fechado! +${ganho} migalhas · total ${total}`
+      : `Sprint fechado! +${ganho} migalhas · total ${total}`
   )
   pedirRecado()
 })
