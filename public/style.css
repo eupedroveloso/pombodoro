@@ -292,6 +292,9 @@ aside.recolhida { transform: translateX(100%); }
 #formRadio { display: flex; gap: 6px; margin-bottom: 8px; }
 #formRadio input { flex: 1; padding: 7px 10px; font-size: 11px; }
 #formRadio button { padding: 7px 12px; }
+/* Importando playlist: campo travado, botão vira o próprio aviso. */
+#formRadio input:disabled { opacity: 0.55; cursor: wait; }
+#formRadio button:disabled { opacity: 0.7; cursor: wait; font-size: 10px; white-space: nowrap; }
 
 /* Fila: card com miniatura, título e duração. */
 #fila { list-style: none; flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 6px; }

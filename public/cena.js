@@ -536,6 +536,17 @@ export function atualizarCena(novo) {
   estado = { ...estado, ...novo }
   const vivos = new Set(estado.jogadores.map((j) => j.id))
   for (const id of vistas.keys()) if (!vivos.has(id)) vistas.delete(id)
+  // A vista pode ter nascido do pouso otimista do app.js — o pombo entra em
+  // cena antes de o servidor responder, com a posição que o navegador
+  // lembrava. No primeiro estado REAL, se o servidor guardou uma posição pra
+  // ele, ela vale; mas só se o dono ainda não tiver andado, pra não puxar o
+  // pombo no meio do passo.
+  for (const j of estado.jogadores) {
+    const v = vistas.get(j.id)
+    if (!v?.provisoria || j.provisorio) continue
+    v.provisoria = false
+    if (Number.isFinite(j.x) && !v.andou) v.x = j.x
+  }
 }
 
 export function dispararEmote(id, emoji) {
@@ -559,6 +570,8 @@ function vistaDe(j, i) {
       noFio: null, // índice do fio em que pousou (só o MEU pombo usa)
       ultimoAltEnviado: 0,
       andando: false,
+      andou: false, // já se mexeu por conta própria: o servidor não o reposiciona mais
+      provisoria: Boolean(j.provisorio), // nasceu do pouso otimista, antes do 1º estado
       rede: null, // última posição vinda do servidor
       redeEm: 0,
       bicandoAte: 0,
@@ -1044,6 +1057,7 @@ function moverLocal(v, agora) {
     v.dormindo = false
     v.dancando = false
     v.bicandoLoop = false
+    v.andou = true // andou por conta própria: a posição do servidor não manda mais (ver atualizarCena)
   }
   // Espaço segurado = JATO de cocô (~12/s; o servidor modera o mural).
   if (teclas.has(' ') && agora - ultimoCoco > 85) {

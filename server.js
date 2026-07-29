@@ -101,6 +101,180 @@ function extrairVideoId(url) {
   return solto ? solto[1] : null
 }
 
+/* ── importação de playlist ──
+   Sem chave de API: o feed RSS público dá até ~15 vídeos de forma estável;
+   quando ele não basta, raspamos o ytInitialData da página da playlist
+   (frágil por natureza — qualquer falha degrada pro resultado do feed).
+   Cada vídeo ainda passa pela MESMA validação oEmbed do caminho de vídeo
+   único antes de entrar na fila. */
+
+const LIMITE_IMPORTACAO = 25 // músicas por colada de playlist; o excedente é ignorado com aviso
+const PAUSA_ENTRE_OEMBEDS_MS = 150 // pra não metralhar o YouTube
+const UA_NAVEGADOR =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+const importacoes = new Set() // socket.id com importação em andamento (evita colada dupla)
+
+function extrairPlaylistId(url) {
+  // Cobre youtube.com/playlist?list=ID, watch?v=X&list=ID e youtu.be/X?list=ID.
+  // Se tem list=, a intenção é a playlist inteira — o vídeo do link é ignorado.
+  const m = String(url).match(/[?&]list=([\w-]+)/)
+  return m ? m[1] : null
+}
+
+function decodificarXml(t) {
+  return String(t)
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n))
+    .replace(/&#x([\da-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+}
+
+async function buscarTexto(url) {
+  const resp = await fetch(url, {
+    signal: AbortSignal.timeout(8000),
+    // User-Agent de navegador + consent já dado: sem isso o YouTube pode
+    // devolver a página de consentimento em vez do conteúdo.
+    headers: { 'user-agent': UA_NAVEGADOR, 'accept-language': 'en', cookie: 'CONSENT=YES+cb; SOCS=CAI' },
+  })
+  if (!resp.ok) throw new Error(`http ${resp.status}`)
+  return resp.text()
+}
+
+/** Caminho principal: feed RSS público da playlist (XML estável, até ~15 vídeos). */
+async function idsDoFeed(listId) {
+  const xml = await buscarTexto(`https://www.youtube.com/feeds/videos.xml?playlist_id=${listId}`)
+  const ids = []
+  for (const m of xml.matchAll(/<yt:videoId>([\w-]{11})<\/yt:videoId>/g)) ids.push(m[1])
+  // O primeiro <title> do feed é o nome da playlist (os das entradas vêm depois).
+  const titulo = decodificarXml(xml.match(/<title>([\s\S]*?)<\/title>/)?.[1] || '')
+  return { ids, titulo }
+}
+
+/** Recorta o objeto JSON embutido que começa logo após `nome` no HTML,
+    varrendo chaves balanceadas com consciência de strings. */
+function extrairJsonEmbutido(html, nome) {
+  const i = html.indexOf(nome)
+  if (i < 0) throw new Error(`${nome} não encontrado`)
+  const ini = html.indexOf('{', i)
+  if (ini < 0) throw new Error('abertura do JSON não encontrada')
+  let prof = 0
+  let emStr = false
+  let esc = false
+  for (let j = ini; j < html.length; j++) {
+    const c = html[j]
+    if (esc) { esc = false; continue }
+    if (emStr) {
+      if (c === '\\') esc = true
+      else if (c === '"') emStr = false
+      continue
+    }
+    if (c === '"') emStr = true
+    else if (c === '{') prof++
+    else if (c === '}' && --prof === 0) return JSON.parse(html.slice(ini, j + 1))
+  }
+  throw new Error('JSON truncado')
+}
+
+/** Fallback/extensão: raspa o ytInitialData da página da playlist (até ~50).
+    Busca recursiva pelos nós de vídeo em vez de caminho fixo — a estrutura
+    externa muda com frequência, os nós folha nem tanto. Duas gerações de
+    marcação: playlistVideoRenderer (antiga) e lockupViewModel (2024+). */
+async function idsDaPagina(listId) {
+  const html = await buscarTexto(`https://www.youtube.com/playlist?list=${listId}`)
+  const dados = extrairJsonEmbutido(html, 'ytInitialData')
+  const ids = []
+  const vistos = new Set()
+  const anotar = (id) => {
+    if (/^[\w-]{11}$/.test(id) && !vistos.has(id)) {
+      vistos.add(id)
+      ids.push(id)
+    }
+  }
+  ;(function varrer(no) {
+    if (!no || typeof no !== 'object' || ids.length >= 50) return
+    if (no.playlistVideoRenderer?.videoId) return anotar(no.playlistVideoRenderer.videoId)
+    const lockup = no.lockupViewModel
+    if (lockup?.contentId && lockup.contentType === 'LOCKUP_CONTENT_TYPE_VIDEO') return anotar(lockup.contentId)
+    for (const v of Object.values(no)) varrer(v)
+  })(dados)
+  return ids
+}
+
+/** Importa uma playlist pra fila da sala, vídeo a vídeo, em série.
+    Roda solta (sem await no handler) — o resumo volta pelo evento
+    'radioImport' só pra quem colou; a fila cresce ao vivo pra sala toda. */
+async function importarPlaylist(sala, jogador, socket, listId) {
+  importacoes.add(socket.id)
+  const r = sala.radio
+  try {
+    let ids = []
+    let tituloPlaylist = ''
+    try {
+      const feed = await idsDoFeed(listId)
+      ids = feed.ids
+      tituloPlaylist = feed.titulo
+    } catch {} // feed fora do ar ou playlist sem feed: ainda tem o scrape
+    // O feed para em ~15. Se falhou, ou encheu e ainda cabe mais, a página
+    // da playlist pode render a lista maior.
+    if (ids.length === 0 || (ids.length >= 15 && ids.length < LIMITE_IMPORTACAO)) {
+      try {
+        const daPagina = await idsDaPagina(listId)
+        if (daPagina.length > ids.length) ids = daPagina
+      } catch {} // scrape quebrou (estrutura mudou, consent…): degrada pro feed
+    }
+    if (!ids.length) {
+      return socket.emit('radioImport', { erro: 'Não consegui ler essa playlist — confere se ela existe e é pública 📻' })
+    }
+
+    const cortadas = Math.max(0, ids.length - LIMITE_IMPORTACAO)
+    ids = ids.slice(0, LIMITE_IMPORTACAO)
+
+    let adicionadas = 0
+    let semEmbed = 0
+    let repetidas = 0
+    let filaCheia = 0
+    for (const id of ids) {
+      // Pombo caiu no meio: cancela o resto — o que já entrou, fica.
+      if (!socket.connected) return
+      if (r.fila.some((f) => f.videoId === id)) {
+        repetidas++
+        continue
+      }
+      if (r.fila.length >= 50) {
+        filaCheia++
+        continue
+      }
+      // MESMA validação do vídeo único: oEmbed confirma que existe e toca
+      // fora do YouTube, e ainda traz título e miniatura de graça.
+      try {
+        const resp = await fetch(
+          `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`,
+          { signal: AbortSignal.timeout(6000) }
+        )
+        if (!resp.ok) throw new Error(`oembed ${resp.status}`)
+        const dados = await resp.json()
+        const estavaOcioso = !r.fila[r.indice]
+        r.fila.push({ videoId: id, titulo: dados.title, de: jogador.nome, deId: jogador.id, imagem: dados.thumbnail_url })
+        adicionadas++
+        if (estavaOcioso) tocarFaixa(r, r.fila.length - 1)
+        io.to(sala.codigo).emit('estado', estado(sala)) // a fila cresce ao vivo
+      } catch {
+        semEmbed++
+      }
+      await new Promise((res) => setTimeout(res, PAUSA_ENTRE_OEMBEDS_MS))
+    }
+    if (adicionadas) {
+      anunciar(
+        sala,
+        `${jogador.nome} importou ${adicionadas} música${adicionadas > 1 ? 's' : ''} da playlist${tituloPlaylist ? ` "${tituloPlaylist}"` : ''} 📻`
+      )
+      io.to(sala.codigo).emit('estado', estado(sala))
+    }
+    socket.emit('radioImport', { adicionadas, semEmbed, repetidas, filaCheia, cortadas })
+  } finally {
+    importacoes.delete(socket.id)
+  }
+}
+
 const salas = new Map()
 
 function novaSala(codigo) {
@@ -852,7 +1026,28 @@ io.on('connection', (socket) => {
     const atual = r.fila[r.indice]
 
     if (acao === 'add') {
-      const id = extrairVideoId(String(payload.url || ''))
+      const url = String(payload.url || '')
+      const listId = extrairPlaylistId(url)
+      if (listId) {
+        // Mixes automáticos (RD…/UL…) não são playlists de verdade: não têm
+        // feed nem página de playlist — melhor recusar com explicação.
+        if (/^(RD|UL)/.test(listId)) {
+          return socket.emit(
+            'recusado',
+            'Esse link é um mix automático do YouTube, não uma playlist de verdade — tira o "&list=…" pra adicionar só o vídeo 📻'
+          )
+        }
+        if (!/^[A-Za-z0-9_-]{10,42}$/.test(listId)) {
+          return socket.emit('recusado', 'Esse ID de playlist não parece válido 🤔')
+        }
+        if (importacoes.has(socket.id)) {
+          return socket.emit('recusado', 'Calma — ainda estou importando a playlist anterior ⏳')
+        }
+        if (r.fila.length >= 50) return socket.emit('recusado', 'A fila está lotada (50 músicas)')
+        importarPlaylist(sala, jogador, socket, listId) // roda solta; o resumo volta por 'radioImport'
+        return
+      }
+      const id = extrairVideoId(url)
       if (!id) return socket.emit('recusado', 'Não entendi esse link do YouTube 🤔')
       if (r.fila.length >= 50) return socket.emit('recusado', 'A fila está lotada (50 músicas)')
       // Valida ANTES de aceitar: vídeo morto/embed bloqueado nem entra.
@@ -1122,7 +1317,25 @@ function fecharSprint(sala) {
   salvar() // migalhas e/ou tarefas podem ter mudado mesmo sem premiados
 }
 
+/* A PRIMEIRA consulta ao Postgres paga sozinha o custo de abrir a conexão
+   (~1s daqui) — e quem pagava essa conta era o primeiro pombo a pousar,
+   olhando pra uma praça vazia enquanto o 'entrar' esperava o banco. Uma
+   consulta boba no boot deixa o caminho aberto pra ele.
+   É a MESMA consulta do carregarSala (com um código que não existe): o
+   primeiro pouso encontra a conexão aberta E a consulta já preparada. */
+function aquecerBanco() {
+  return prisma.sala
+    .findUnique({
+      // Código impossível (os de verdade são maiúsculos e têm até 8 letras):
+      // não lê sala nenhuma, só abre o caminho.
+      where: { codigo: 'aquecimento-do-boot' },
+      include: { participacoes: { include: { user: true } } },
+    })
+    .catch((e) => console.warn('[pombodoro] banco não respondeu no aquecimento:', e.message))
+}
+
 importarDataJson().finally(() => {
+  aquecerBanco()
   http.listen(PORT, () => {
     console.log(`\n  🐦  Pombodoro voando em http://localhost:${PORT}\n`)
   })

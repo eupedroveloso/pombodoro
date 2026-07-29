@@ -251,6 +251,27 @@ let naPraca = false
 let cenaIniciada = false
 let radioIniciado = false
 
+/* ─── memória de onde meu pombo estava ───────────────────────
+   Guardada POR PRAÇA, neste navegador. Serve ao render otimista: o pombo
+   pousa no lugar certo antes de o servidor confirmar, e quando o 'estado'
+   chega ele traz a mesma posição — ninguém vê teleporte. A escrita é
+   engasgada (1x/s) porque o passeio manda posição ~8x por segundo. */
+const chavePos = () => `pombodoro-pos-${codigo}`
+let ultimaPosSalvaEm = 0
+
+function lembrarPos(m) {
+  if (!Number.isFinite(m?.x) || Date.now() - ultimaPosSalvaEm < 1000) return
+  ultimaPosSalvaEm = Date.now()
+  try {
+    localStorage.setItem(chavePos(), String(Math.round(m.x)))
+  } catch {}
+}
+
+function posLembrada() {
+  const x = Number(localStorage.getItem(chavePos()))
+  return Number.isFinite(x) && x > 0 ? x : undefined
+}
+
 function entrarNaPraca() {
   if (!codigo) return // sem sala não tem onde pousar
   localStorage.setItem('pombodoro-sala', codigo)
@@ -265,7 +286,10 @@ function entrarNaPraca() {
     cenaIniciada = true
     iniciarCena(
       $('cena'),
-      (m) => naPraca && socket.emit('mover', m),
+      (m) => {
+        lembrarPos(m)
+        return naPraca && socket.emit('mover', m)
+      },
       // Cocô MEU na cabeça de um pedestre: só festejo local, sem pontos.
       (nome) => toast(`Na mosca! Acertou em cheio: ${nome}.`)
     )
@@ -275,7 +299,37 @@ function entrarNaPraca() {
     iniciarRadio()
   }
   aplicarPreferenciaAbas()
+  pousoOtimista()
   socket.emit('entrar', { codigo, ...eu })
+}
+
+/** O pombo pousa AGORA, sem esperar o servidor.
+    O 'entrar' ainda vai e volta (banco frio, rede ruim — ou nunca, se o
+    socket não subir), e esperar isso deixava a praça vazia por até ~2s.
+    Este estado é SÓ DESENHO: não tem fase, ponto nem notificação — quem
+    manda nisso continua sendo o 'estado' do servidor, que substitui este
+    sem piscar (a vista do pombo é indexada pelo id, então é a mesma). */
+function pousoOtimista() {
+  atualizarCena({
+    fase: 'foco',
+    rodando: false, // relógio parado: o pombo passeia até o servidor dizer o contrário
+    jogadores: [
+      {
+        id: eu.id,
+        nome: eu.nome,
+        corpo: eu.corpo,
+        crista: eu.crista,
+        acessorio: eu.acessorio || 0,
+        x: posLembrada(),
+        online: true,
+        soloAtivo: false,
+        soloFoco: false,
+        provisorio: true, // a cena sabe que essa posição ainda não é a do servidor
+      },
+    ],
+    manchas: [],
+    meuId: eu.id,
+  })
 }
 
 /* ─── abas flutuantes (mural / controles) ─────────────────────
@@ -425,7 +479,10 @@ socket.on('pos', (p) => aplicarPosRemota(p))
 socket.on('soco', (p) => aplicarSoco(p))
 socket.on('coco', (p) => aplicarCoco(p))
 socket.on('explodiu', ({ id, x }) => explodirPombo(id, x))
-socket.on('recusado', (msg) => toast(msg))
+socket.on('recusado', (msg) => {
+  marcarImportando(false) // recusa de playlist (mix, ID inválido…) destrava o campo
+  toast(msg)
+})
 socket.on('sorteado', ({ nome }) => toast(`Deu ${nome}!`))
 
 socket.on('creditado', ({ ganho, bando, total, solo }) => {
@@ -969,11 +1026,40 @@ $('slVol').addEventListener('input', () => {
   }
 })
 
+/* Importação de playlist: enquanto o servidor extrai e valida as músicas
+   (até 25 por colada), o campo fica travado pra evitar colada dupla. O
+   destrave vem pelo resumo ('radioImport'), por uma recusa ('recusado') ou
+   pela queda do socket — o servidor cancela o resto da importação nesse caso. */
+let importandoPlaylist = false
+
+function marcarImportando(on) {
+  importandoPlaylist = on
+  $('inputRadio').disabled = on
+  $('btnAddRadio').disabled = on
+  $('btnAddRadio').textContent = on ? 'importando…' : '+'
+}
+
+socket.on('radioImport', (res = {}) => {
+  marcarImportando(false)
+  if (res.erro) return toast(res.erro)
+  const partes = [`${res.adicionadas} música${res.adicionadas === 1 ? '' : 's'} na fila`]
+  if (res.semEmbed) partes.push(`${res.semEmbed} sem permissão de embed`)
+  if (res.repetidas) partes.push(`${res.repetidas} já estavam na fila`)
+  if (res.filaCheia) partes.push(`${res.filaCheia} não couberam (fila lotada)`)
+  if (res.cortadas) partes.push(`${res.cortadas} além do limite de 25 por colada`)
+  toast(partes.join(' · '))
+})
+
+socket.on('disconnect', () => marcarImportando(false))
+
 $('formRadio').onsubmit = (ev) => {
   ev.preventDefault()
+  if (importandoPlaylist) return
   const url = $('inputRadio').value.trim()
   if (!url) return
   socket.emit('radio', { acao: 'add', url })
+  // Tem list=? Então é importação de playlist — trava até o servidor responder.
+  if (/[?&]list=[\w-]+/.test(url)) marcarImportando(true)
   $('inputRadio').value = ''
 }
 
